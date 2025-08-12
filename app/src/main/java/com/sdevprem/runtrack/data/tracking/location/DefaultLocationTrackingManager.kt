@@ -12,10 +12,11 @@ import com.sdevprem.runtrack.domain.tracking.location.LocationTrackingManager
 import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.domain.tracking.model.LocationTrackingInfo
 import dagger.hilt.android.qualifiers.ApplicationContext
+import javax.inject.Inject
 
 
 @SuppressLint("MissingPermission")
-class DefaultLocationTrackingManager constructor(
+class DefaultLocationTrackingManager @Inject constructor(
     private val fusedLocationProviderClient: FusedLocationProviderClient,
     @ApplicationContext private val context: Context,
     private val locationRequest: LocationRequest
@@ -38,14 +39,15 @@ class DefaultLocationTrackingManager constructor(
     }
 
     override fun setCallback(locationCallback: LocationTrackingManager.LocationCallback) {
-        if (context.hasLocationPermission()) {
-            this.locationCallback = locationCallback
-            fusedLocationProviderClient.requestLocationUpdates(
-                locationRequest,
-                gLocationCallback,
-                Looper.getMainLooper()
-            )
-        }
+        if (!context.hasLocationPermission())
+            return
+
+        this.locationCallback = locationCallback
+        fusedLocationProviderClient.requestLocationUpdates(
+            locationRequest,
+            gLocationCallback,
+            Looper.getMainLooper()
+        )
     }
 
     override fun removeCallback() {

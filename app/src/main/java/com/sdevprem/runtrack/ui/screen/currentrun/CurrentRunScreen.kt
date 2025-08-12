@@ -1,6 +1,9 @@
 package com.sdevprem.runtrack.ui.screen.currentrun
 
 import android.app.Activity
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -29,6 +33,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.sdevprem.runtrack.R
+import com.sdevprem.runtrack.common.extension.hasLocationPermission
+import com.sdevprem.runtrack.common.utils.PermissionUtils
 import com.sdevprem.runtrack.data.tracking.location.LocationUtils
 import com.sdevprem.runtrack.ui.common.compose.animation.ComposeUtils
 import com.sdevprem.runtrack.ui.screen.currentrun.component.CurrentRunStatsCard
@@ -52,7 +58,17 @@ fun CurrentRunScreen(
     viewModel: CurrentRunViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissionMap ->
+        if (!permissionMap.values.all { it })
+            Toast.makeText(
+                context,
+                context.getString(R.string.permission_denied_message),
+                Toast.LENGTH_SHORT
+            ).show()
 
+    }
     LaunchedEffect(key1 = true) {
         LocationUtils.checkAndRequestLocationSetting(context as Activity)
     }
@@ -64,6 +80,14 @@ fun CurrentRunScreen(
     LaunchedEffect(key1 = Unit) {
         delay(ComposeUtils.slideDownInDuration + 200L)
         shouldShowRunningCard = true
+    }
+
+    val playPauseButtonOnClick = {
+        if (context.hasLocationPermission()) {
+            viewModel.playPauseTracking()
+        } else {
+            permissionLauncher.launch(PermissionUtils.locationPermissions)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -88,7 +112,7 @@ fun CurrentRunScreen(
             CurrentRunStatsCard(
                 modifier = Modifier
                     .padding(vertical = 16.dp, horizontal = 24.dp),
-                onPlayPauseButtonClick = viewModel::playPauseTracking,
+                onPlayPauseButtonClick = playPauseButtonOnClick,
                 runState = runState,
                 durationInMillis = runningDurationInMillis,
                 onFinish = { isRunningFinished = true }
@@ -119,7 +143,7 @@ private fun TopBar(
     ) {
         Icon(
             imageVector = ImageVector.vectorResource(id = R.drawable.ic_back),
-            contentDescription = "",
+            contentDescription = stringResource(id = R.string.navigate_back_button_desc),
             tint = MaterialTheme.colorScheme.onSurface
         )
     }
