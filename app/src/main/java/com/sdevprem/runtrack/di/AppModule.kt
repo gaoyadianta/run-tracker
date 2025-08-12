@@ -77,15 +77,16 @@ abstract class AppModule {
 
         @Singleton
         @Provides
+        fun provideLocationRequest(): com.google.android.gms.location.LocationRequest {
+            return LocationUtils.locationRequestBuilder.build()
+        }
+
+        @Singleton
+        @Provides
         fun provideLocationTrackingManager(
-            @ApplicationContext context: Context,
-            fusedLocationProviderClient: FusedLocationProviderClient,
+            locationTrackingManagerFactory: com.sdevprem.runtrack.data.tracking.location.LocationTrackingManagerFactory
         ): LocationTrackingManager {
-            return DefaultLocationTrackingManager(
-                fusedLocationProviderClient = fusedLocationProviderClient,
-                context = context,
-                locationRequest = LocationUtils.locationRequestBuilder.build()
-            )
+            return locationTrackingManagerFactory.createLocationTrackingManager()
         }
 
     }

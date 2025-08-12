@@ -94,10 +94,11 @@ fun CurrentRunScreen(
         Map(
             pathPoints = runState.currentRunState.pathPoints,
             isRunningFinished = isRunningFinished,
-        ) {
-            viewModel.finishRun(it)
-            navController.navigateUp()
-        }
+            onSnapshot = { bitmap ->
+                viewModel.finishRun(bitmap)
+                navController.navigateUp()
+            }
+        )
         TopBar(
             modifier = Modifier
                 .align(Alignment.TopStart)

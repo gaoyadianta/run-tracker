@@ -21,6 +21,10 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+        
+        // Handle optional AMAP API key
+        val amapApiKey = project.findProperty("AMAP_API_KEY") ?: ""
+        manifestPlaceholders["AMAP_API_KEY"] = amapApiKey
     }
 
     buildTypes {
@@ -33,11 +37,11 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = "17"
     }
     buildFeatures {
         compose = true
@@ -83,6 +87,9 @@ dependencies {
     implementation(libs.maps.compose)
     implementation(libs.play.services.maps)
     implementation(libs.play.services.location)
+    
+    //amap
+    implementation("com.amap.api:3dmap:10.0.600")
 
     //hilt
     implementation(libs.androidx.hilt.navigation.compose)

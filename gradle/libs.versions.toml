@@ -22,6 +22,10 @@ maps-compose = "5.0.3"
 play-services-location = "21.3.0"
 play-services-maps = "18.2.0"
 
+#amap
+amap_3dmap = "10.0.600"
+amap_location = "6.4.3"
+
 timber = "5.0.1"
 
 room = "2.6.1"
@@ -97,6 +101,10 @@ coil-compose = { module = "io.coil-kt:coil-compose", version.ref = "coil-compose
 maps-compose = { module = "com.google.maps.android:maps-compose", version.ref = "maps-compose" }
 play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "play-services-location" }
 play-services-maps = { module = "com.google.android.gms:play-services-maps", version.ref = "play-services-maps" }
+
+#amap
+amap_3dmap = { module = "com.amap.api:3dmap", version.ref = "amap_3dmap" }
+amap_location = { module = "com.amap.api:location", version.ref = "amap_location" }
 
 #paging
 androidx-paging-runtime = { module = "androidx.paging:paging-runtime", version.ref = "paging" }

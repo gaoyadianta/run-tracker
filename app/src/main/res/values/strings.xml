@@ -2,4 +2,5 @@
     <string name="app_name">RunTrack</string>
     <string name="permission_denied_message">"Location permission denied. Please grant permission to track your run."</string>
     <string name="navigate_back_button_desc">"Navigate back"</string>
+    <string name="empty_string" translatable="false"></string>
 </resources>
