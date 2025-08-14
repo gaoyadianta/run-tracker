@@ -26,6 +26,8 @@ class TrackingManager @Inject constructor(
             _currentRunState.update { it.copy(isTracking = value) }
             field = value
         }
+    
+    private var isLocationAcquisitionActive = false
 
     private val _currentRunState = MutableStateFlow(CurrentRunState())
     val currentRunState = _currentRunState
@@ -51,6 +53,15 @@ class TrackingManager @Inject constructor(
                                 "longitude: ${info.locationInfo.longitude}"
                     )
                 }
+            } else if (isLocationAcquisitionActive) {
+                results.forEach { info ->
+                    addCurrentLocationPoint(info)
+                    Timber.d(
+                        "Current Location : " +
+                                "latitude: ${info.locationInfo.latitude}, " +
+                                "longitude: ${info.locationInfo.longitude}"
+                    )
+                }
             }
         }
     }
@@ -60,6 +71,16 @@ class TrackingManager @Inject constructor(
             CurrentRunState()
         }
         _trackingDurationInMs.update { 0 }
+    }
+
+    private fun addCurrentLocationPoint(info: LocationTrackingInfo) {
+        _currentRunState.update { state ->
+            state.copy(
+                pathPoints = listOf(PathPoint.LocationPoint(info.locationInfo)),
+                speedInKMH = (info.speedInMS * 3.6f).toBigDecimal()
+                    .setScale(2, RoundingMode.HALF_UP).toFloat()
+            )
+        }
     }
 
     private fun addPathPoints(info: LocationTrackingInfo) {
@@ -82,6 +103,15 @@ class TrackingManager @Inject constructor(
         }
     }
 
+    fun startLocationAcquisition() {
+        if (isFirst) {
+            postInitialValue()
+            isFirst = false
+        }
+        isLocationAcquisitionActive = true
+        locationTrackingManager.setCallback(locationCallback)
+    }
+
     fun startResumeTracking() {
         if (isTracking)
             return
@@ -90,6 +120,7 @@ class TrackingManager @Inject constructor(
             backgroundTrackingManager.startBackgroundTracking()
             isFirst = false
         }
+        isLocationAcquisitionActive = false
         isTracking = true
         timeTracker.startResumeTimer(timeTrackerCallback)
         locationTrackingManager.setCallback(locationCallback)
@@ -112,6 +143,7 @@ class TrackingManager @Inject constructor(
 
     fun stop() {
         pauseTracking()
+        isLocationAcquisitionActive = false
         backgroundTrackingManager.stopBackgroundTracking()
         timeTracker.stopTimer()
         postInitialValue()

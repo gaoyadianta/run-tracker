@@ -38,6 +38,10 @@ class CurrentRunViewModel @Inject constructor(
         )
     val runningDurationInMillis = trackingManager.trackingDurationInMs
 
+    fun startLocationAcquisition() {
+        trackingManager.startLocationAcquisition()
+    }
+
     fun playPauseTracking() {
         if (currentRunStateWithCalories.value.currentRunState.isTracking)
             trackingManager.pauseTracking()

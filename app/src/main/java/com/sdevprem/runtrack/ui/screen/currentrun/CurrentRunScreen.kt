@@ -77,7 +77,13 @@ fun CurrentRunScreen(
     val runState by viewModel.currentRunStateWithCalories.collectAsStateWithLifecycle()
     val runningDurationInMillis by viewModel.runningDurationInMillis.collectAsStateWithLifecycle()
 
-    LaunchedEffect(key1 = Unit) {
+    LaunchedEffect(key1 = "location_acquisition") {
+        if (context.hasLocationPermission()) {
+            viewModel.startLocationAcquisition()
+        }
+    }
+
+    LaunchedEffect(key1 = "show_running_card") {
         delay(ComposeUtils.slideDownInDuration + 200L)
         shouldShowRunningCard = true
     }
