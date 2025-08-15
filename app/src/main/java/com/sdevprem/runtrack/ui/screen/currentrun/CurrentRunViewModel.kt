@@ -24,6 +24,7 @@ import javax.inject.Inject
 class CurrentRunViewModel @Inject constructor(
     private val trackingManager: TrackingManager,
     private val repository: AppRepository,
+    val batteryOptimizationManager: com.sdevprem.runtrack.background.tracking.battery.BatteryOptimizationManager,
     @ApplicationScope
     private val appCoroutineScope: CoroutineScope,
     @IoDispatcher

@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -36,6 +37,7 @@ import com.sdevprem.runtrack.R
 import com.sdevprem.runtrack.common.extension.hasLocationPermission
 import com.sdevprem.runtrack.common.utils.PermissionUtils
 import com.sdevprem.runtrack.data.tracking.location.LocationUtils
+import com.sdevprem.runtrack.ui.common.compose.BatteryOptimizationDialog
 import com.sdevprem.runtrack.ui.common.compose.animation.ComposeUtils
 import com.sdevprem.runtrack.ui.screen.currentrun.component.CurrentRunStatsCard
 import com.sdevprem.runtrack.ui.screen.currentrun.component.Map
@@ -45,35 +47,33 @@ import kotlinx.coroutines.delay
 @Composable
 @Preview(showBackground = true)
 private fun CurrentRunComposable() {
-    AppTheme {
-        Surface {
-            CurrentRunScreen(rememberNavController())
-        }
-    }
+    AppTheme { Surface { CurrentRunScreen(rememberNavController()) } }
 }
 
 @Composable
 fun CurrentRunScreen(
-    navController: NavController,
-    viewModel: CurrentRunViewModel = hiltViewModel()
+        navController: NavController,
+        viewModel: CurrentRunViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissionMap ->
-        if (!permissionMap.values.all { it })
-            Toast.makeText(
-                context,
-                context.getString(R.string.permission_denied_message),
-                Toast.LENGTH_SHORT
-            ).show()
-
-    }
+    val permissionLauncher =
+            rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestMultiplePermissions()
+            ) { permissionMap ->
+                if (!permissionMap.values.all { it })
+                        Toast.makeText(
+                                        context,
+                                        context.getString(R.string.permission_denied_message),
+                                        Toast.LENGTH_SHORT
+                                )
+                                .show()
+            }
     LaunchedEffect(key1 = true) {
         LocationUtils.checkAndRequestLocationSetting(context as Activity)
     }
     var isRunningFinished by rememberSaveable { mutableStateOf(false) }
     var shouldShowRunningCard by rememberSaveable { mutableStateOf(false) }
+    var showBatteryOptimizationDialog by remember { mutableStateOf(false) }
     val runState by viewModel.currentRunStateWithCalories.collectAsStateWithLifecycle()
     val runningDurationInMillis by viewModel.runningDurationInMillis.collectAsStateWithLifecycle()
 
@@ -88,6 +88,13 @@ fun CurrentRunScreen(
         shouldShowRunningCard = true
     }
 
+    // 检查电池优化设置
+    LaunchedEffect(key1 = "battery_optimization_check") {
+        if (viewModel.batteryOptimizationManager.shouldRequestBatteryOptimization()) {
+            showBatteryOptimizationDialog = true
+        }
+    }
+
     val playPauseButtonOnClick = {
         if (context.hasLocationPermission()) {
             viewModel.playPauseTracking()
@@ -98,60 +105,60 @@ fun CurrentRunScreen(
 
     Box(modifier = Modifier.fillMaxSize()) {
         Map(
-            pathPoints = runState.currentRunState.pathPoints,
-            isRunningFinished = isRunningFinished,
-            onSnapshot = { bitmap ->
-                viewModel.finishRun(bitmap)
-                navController.navigateUp()
-            }
+                pathPoints = runState.currentRunState.pathPoints,
+                isRunningFinished = isRunningFinished,
+                onSnapshot = { bitmap ->
+                    viewModel.finishRun(bitmap)
+                    navController.navigateUp()
+                }
         )
         TopBar(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(24.dp),
-            onNavigateUp = navController::navigateUp
+                modifier = Modifier.align(Alignment.TopStart).padding(24.dp),
+                onNavigateUp = navController::navigateUp
         )
         ComposeUtils.SlideUpAnimatedVisibility(
-            modifier = Modifier
-                .align(Alignment.BottomCenter),
-            visible = shouldShowRunningCard
+                modifier = Modifier.align(Alignment.BottomCenter),
+                visible = shouldShowRunningCard
         ) {
             CurrentRunStatsCard(
-                modifier = Modifier
-                    .padding(vertical = 16.dp, horizontal = 24.dp),
-                onPlayPauseButtonClick = playPauseButtonOnClick,
-                runState = runState,
-                durationInMillis = runningDurationInMillis,
-                onFinish = { isRunningFinished = true }
+                    modifier = Modifier.padding(vertical = 16.dp, horizontal = 24.dp),
+                    onPlayPauseButtonClick = playPauseButtonOnClick,
+                    runState = runState,
+                    durationInMillis = runningDurationInMillis,
+                    onFinish = { isRunningFinished = true }
             )
         }
 
+        // 电池优化对话框
+        if (showBatteryOptimizationDialog) {
+            BatteryOptimizationDialog(
+                    batteryOptimizationManager = viewModel.batteryOptimizationManager,
+                    onDismiss = { showBatteryOptimizationDialog = false }
+            )
+        }
     }
 }
 
 @Composable
-private fun TopBar(
-    modifier: Modifier = Modifier,
-    onNavigateUp: () -> Unit
-) {
+private fun TopBar(modifier: Modifier = Modifier, onNavigateUp: () -> Unit) {
     IconButton(
-        onClick = onNavigateUp,
-        modifier = modifier
-            .size(32.dp)
-            .shadow(
-                elevation = 4.dp,
-                shape = MaterialTheme.shapes.medium,
-                clip = true
-            )
-            .background(
-                color = MaterialTheme.colorScheme.surface,
-            )
-            .padding(4.dp)
+            onClick = onNavigateUp,
+            modifier =
+                    modifier.size(32.dp)
+                            .shadow(
+                                    elevation = 4.dp,
+                                    shape = MaterialTheme.shapes.medium,
+                                    clip = true
+                            )
+                            .background(
+                                    color = MaterialTheme.colorScheme.surface,
+                            )
+                            .padding(4.dp)
     ) {
         Icon(
-            imageVector = ImageVector.vectorResource(id = R.drawable.ic_back),
-            contentDescription = stringResource(id = R.string.navigate_back_button_desc),
-            tint = MaterialTheme.colorScheme.onSurface
+                imageVector = ImageVector.vectorResource(id = R.drawable.ic_back),
+                contentDescription = stringResource(id = R.string.navigate_back_button_desc),
+                tint = MaterialTheme.colorScheme.onSurface
         )
     }
 }

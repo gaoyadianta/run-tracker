@@ -50,6 +50,11 @@ class TrackingNotificationHelper @Inject constructor(
             .setContentTitle("Running Time")
             .setContentText("00:00:00")
             .setContentIntent(intentToRunScreen)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_WORKOUT)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setShowWhen(true)
+            .setUsesChronometer(false)
 
     private val notificationManager by lazy {
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -95,8 +100,12 @@ class TrackingNotificationHelper @Inject constructor(
         val notificationChannel = NotificationChannel(
             TRACKING_NOTIFICATION_CHANNEL_ID,
             TRACKING_NOTIFICATION_CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_LOW
-        )
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "显示运动追踪状态和时间"
+            setShowBadge(true)
+            lockscreenVisibility = NotificationCompat.VISIBILITY_PUBLIC
+        }
         notificationManager.createNotificationChannel(notificationChannel)
     }
 
