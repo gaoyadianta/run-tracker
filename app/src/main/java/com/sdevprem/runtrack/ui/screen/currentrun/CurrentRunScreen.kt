@@ -39,8 +39,10 @@ import com.sdevprem.runtrack.common.utils.PermissionUtils
 import com.sdevprem.runtrack.data.tracking.location.LocationUtils
 import com.sdevprem.runtrack.ui.common.compose.BatteryOptimizationDialog
 import com.sdevprem.runtrack.ui.common.compose.animation.ComposeUtils
+import com.sdevprem.runtrack.ui.screen.currentrun.component.AICompanionCard
 import com.sdevprem.runtrack.ui.screen.currentrun.component.CurrentRunStatsCard
 import com.sdevprem.runtrack.ui.screen.currentrun.component.Map
+import com.sdevprem.runtrack.ui.screen.currentrun.component.VoiceInputDialog
 import com.sdevprem.runtrack.ui.theme.AppTheme
 import kotlinx.coroutines.delay
 
@@ -74,8 +76,17 @@ fun CurrentRunScreen(
     var isRunningFinished by rememberSaveable { mutableStateOf(false) }
     var shouldShowRunningCard by rememberSaveable { mutableStateOf(false) }
     var showBatteryOptimizationDialog by remember { mutableStateOf(false) }
+    var showVoiceInputDialog by remember { mutableStateOf(false) }
+    var isListening by remember { mutableStateOf(false) }
+    var recognizedText by remember { mutableStateOf("") }
+    
     val runState by viewModel.currentRunStateWithCalories.collectAsStateWithLifecycle()
     val runningDurationInMillis by viewModel.runningDurationInMillis.collectAsStateWithLifecycle()
+    
+    // AI陪跑状态
+    val aiConnectionState by viewModel.aiConnectionState.collectAsStateWithLifecycle()
+    val aiLastMessage by viewModel.aiLastMessage.collectAsStateWithLifecycle()
+    val aiAudioEnabled by viewModel.aiAudioEnabled.collectAsStateWithLifecycle()
 
     LaunchedEffect(key1 = "location_acquisition") {
         if (context.hasLocationPermission()) {
@@ -116,6 +127,22 @@ fun CurrentRunScreen(
                 modifier = Modifier.align(Alignment.TopStart).padding(24.dp),
                 onNavigateUp = navController::navigateUp
         )
+        
+        // AI陪跑卡片
+        ComposeUtils.SlideUpAnimatedVisibility(
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 80.dp, start = 24.dp, end = 24.dp),
+                visible = shouldShowRunningCard
+        ) {
+            AICompanionCard(
+                    connectionState = aiConnectionState,
+                    lastMessage = aiLastMessage,
+                    isAudioEnabled = aiAudioEnabled,
+                    onConnectClick = { viewModel.connectAI() },
+                    onDisconnectClick = { viewModel.disconnectAI() },
+                    onToggleAudio = { viewModel.toggleAIAudio() },
+                    onVoiceInput = { showVoiceInputDialog = true }
+            )
+        }
         ComposeUtils.SlideUpAnimatedVisibility(
                 modifier = Modifier.align(Alignment.BottomCenter),
                 visible = shouldShowRunningCard
@@ -134,6 +161,35 @@ fun CurrentRunScreen(
             BatteryOptimizationDialog(
                     batteryOptimizationManager = viewModel.batteryOptimizationManager,
                     onDismiss = { showBatteryOptimizationDialog = false }
+            )
+        }
+        
+        // 语音输入对话框
+        if (showVoiceInputDialog) {
+            VoiceInputDialog(
+                    isListening = isListening,
+                    recognizedText = recognizedText,
+                    onStartListening = { 
+                        isListening = true
+                        // 模拟语音识别过程
+                        viewModel.startMockSpeechRecognition { result ->
+                            recognizedText = result
+                            isListening = false
+                        }
+                    },
+                    onStopListening = { 
+                        isListening = false
+                        viewModel.stopMockSpeechRecognition()
+                    },
+                    onSendMessage = { message ->
+                        viewModel.sendVoiceMessage(message)
+                        recognizedText = ""
+                    },
+                    onDismiss = { 
+                        showVoiceInputDialog = false
+                        isListening = false
+                        recognizedText = ""
+                    }
             )
         }
     }

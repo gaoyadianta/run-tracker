@@ -130,6 +130,13 @@ dependencies {
     implementation(libs.vico.compose)
     implementation(libs.vico.compose.m3)
     implementation(libs.vico.core)
+    
+    //coze webrtc - 真实实现
+    implementation("com.coze:coze-api:0.2.1")
+    implementation("com.volcengine:VolcEngineRTC:3.58.1.19400")
+    implementation("com.fasterxml.jackson.core:jackson-core:2.15.2")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.15.2")
+    implementation("com.fasterxml.jackson.core:jackson-annotations:2.15.2")
 }
 
 kapt {

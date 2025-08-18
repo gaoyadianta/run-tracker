@@ -10,6 +10,14 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // 添加火山引擎RTC仓库
+        maven {
+            url = uri("https://artifact.bytedance.com/repository/VolcEngineRTC/")
+        }
+        // 备用仓库
+        maven {
+            url = uri("https://jitpack.io")
+        }
     }
 }
 
