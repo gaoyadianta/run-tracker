@@ -52,6 +52,8 @@ class CurrentRunViewModel @Inject constructor(
     val aiConnectionState = aiCompanionManager.connectionState
     val aiLastMessage = aiCompanionManager.lastMessage
     val aiAudioEnabled = aiCompanionManager.isAudioEnabled
+    val currentAudioDevice = aiCompanionManager.getCurrentAudioDevice()
+    val availableAudioDevices = aiCompanionManager.getAvailableAudioDevices()
     
     private var lastBroadcastDistance = 0f
     private var previousPace = 0f
@@ -128,6 +130,10 @@ class CurrentRunViewModel @Inject constructor(
     fun triggerManualBroadcast(type: AIBroadcastType) {
         val runningContext = createRunningContext()
         aiCompanionManager.triggerBroadcast(runningContext, type)
+    }
+    
+    fun switchAudioDevice(deviceType: com.sdevprem.runtrack.ai.audio.AudioRouteManager.AudioDeviceType) {
+        aiCompanionManager.switchAudioDevice(deviceType)
     }
     
     private fun handleRunningStateChange(runState: CurrentRunStateWithCalories, duration: Long) {

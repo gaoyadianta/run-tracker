@@ -12,6 +12,8 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +25,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sdevprem.runtrack.ai.model.AIConnectionState
+import com.sdevprem.runtrack.ai.audio.AudioRouteManager
 
 @Composable
 fun AICompanionCard(
@@ -30,10 +33,13 @@ fun AICompanionCard(
     connectionState: AIConnectionState,
     lastMessage: String,
     isAudioEnabled: Boolean,
+    currentAudioDevice: AudioRouteManager.AudioDeviceType,
+    availableAudioDevices: List<AudioRouteManager.AudioDeviceType>,
     onConnectClick: () -> Unit,
     onDisconnectClick: () -> Unit,
     onToggleAudio: () -> Unit,
-    onVoiceInput: () -> Unit
+    onVoiceInput: () -> Unit,
+    onAudioDeviceChange: (AudioRouteManager.AudioDeviceType) -> Unit
 ) {
     Card(
         modifier = modifier,
@@ -138,50 +144,147 @@ fun AICompanionCard(
                 }
             }
             
-            // 控制按钮
+            // 音频设备选择
             AnimatedVisibility(
                 visible = connectionState == AIConnectionState.CONNECTED
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    // 音频开关
-                    IconButton(
-                        onClick = onToggleAudio,
+                Column {
+                    // 当前音频设备显示
+                    Row(
                         modifier = Modifier
-                            .clip(CircleShape)
-                            .background(
-                                if (isAudioEnabled) 
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                                else 
-                                    MaterialTheme.colorScheme.error.copy(alpha = 0.1f)
-                            )
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(
-                            imageVector = if (isAudioEnabled) Icons.Default.Done else Icons.Default.Close,
-                            contentDescription = if (isAudioEnabled) "关闭音频" else "开启音频",
-                            tint = if (isAudioEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = getAudioDeviceIcon(currentAudioDevice),
+                                contentDescription = "当前音频设备",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = currentAudioDevice.displayName,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        
+                        // 音频设备切换按钮
+                        var showDeviceMenu by remember { mutableStateOf(false) }
+                        
+                        Box {
+                            IconButton(
+                                onClick = { showDeviceMenu = true },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "切换音频设备",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            
+                            DropdownMenu(
+                                expanded = showDeviceMenu,
+                                onDismissRequest = { showDeviceMenu = false }
+                            ) {
+                                availableAudioDevices.forEach { device ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Icon(
+                                                    imageVector = getAudioDeviceIcon(device),
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = device.displayName,
+                                                    fontSize = 14.sp
+                                                )
+                                                if (device == currentAudioDevice) {
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Icon(
+                                                        imageVector = Icons.Default.Done,
+                                                        contentDescription = "当前设备",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onClick = {
+                                            onAudioDeviceChange(device)
+                                            showDeviceMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                     
-                    // 语音输入按钮
-                    IconButton(
-                        onClick = onVoiceInput,
+                    // 控制按钮
+                    Row(
                         modifier = Modifier
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f))
+                            .fillMaxWidth()
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Call,
-                            contentDescription = "语音输入",
-                            tint = MaterialTheme.colorScheme.secondary
-                        )
+                        // 音频开关
+                        IconButton(
+                            onClick = onToggleAudio,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(
+                                    if (isAudioEnabled) 
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                    else 
+                                        MaterialTheme.colorScheme.error.copy(alpha = 0.1f)
+                                )
+                        ) {
+                            Icon(
+                                imageVector = if (isAudioEnabled) Icons.Default.Done else Icons.Default.Close,
+                                contentDescription = if (isAudioEnabled) "关闭音频" else "开启音频",
+                                tint = if (isAudioEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            )
+                        }
+                        
+                        // 语音输入按钮
+                        IconButton(
+                            onClick = onVoiceInput,
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.secondary.copy(alpha = 0.1f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Call,
+                                contentDescription = "语音输入",
+                                tint = MaterialTheme.colorScheme.secondary
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * 根据音频设备类型返回对应的图标
+ */
+@Composable
+private fun getAudioDeviceIcon(deviceType: AudioRouteManager.AudioDeviceType) = when (deviceType) {
+    AudioRouteManager.AudioDeviceType.BLUETOOTH_HEADSET -> Icons.Default.Call
+    AudioRouteManager.AudioDeviceType.WIRED_HEADSET -> Icons.Default.Call
+    AudioRouteManager.AudioDeviceType.BLUETOOTH_A2DP -> Icons.Default.Call
+    AudioRouteManager.AudioDeviceType.EARPIECE -> Icons.Default.Phone
+    AudioRouteManager.AudioDeviceType.SPEAKER -> Icons.Default.AccountCircle
 }

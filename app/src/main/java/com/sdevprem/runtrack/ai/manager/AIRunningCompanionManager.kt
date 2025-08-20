@@ -12,6 +12,7 @@ import com.sdevprem.runtrack.ai.config.CozeConfig
 import com.sdevprem.runtrack.ai.model.AIBroadcastType
 import com.sdevprem.runtrack.ai.model.AIConnectionState
 import com.sdevprem.runtrack.ai.model.RunningContext
+import com.sdevprem.runtrack.ai.audio.AudioRouteManager
 import com.ss.bytertc.engine.RTCRoom
 import com.ss.bytertc.engine.RTCVideo
 import com.ss.bytertc.engine.RTCRoomConfig
@@ -39,7 +40,8 @@ import kotlinx.coroutines.cancelChildren
 class AIRunningCompanionManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val cozeConfig: CozeConfig,
-    private val cozeAPIManager: CozeAPIManager
+    private val cozeAPIManager: CozeAPIManager,
+    private val audioRouteManager: AudioRouteManager
 ) {
     companion object {
         private const val TAG = "AIRunningCompanion"
@@ -75,6 +77,9 @@ class AIRunningCompanionManager @Inject constructor(
             Timber.w("Coze配置不完整，无法初始化AI陪跑功能")
             return
         }
+        
+        // 初始化音频路由管理器
+        audioRouteManager.initialize()
         
         cozeAPI = cozeAPIManager.getCozeAPI()
         Timber.d("AI陪跑管理器初始化完成")
@@ -159,6 +164,9 @@ class AIRunningCompanionManager @Inject constructor(
             // 更新状态
             _connectionState.value = AIConnectionState.DISCONNECTED
             
+            // 恢复原始音频设置
+            audioRouteManager.restoreOriginalSettings()
+            
             // 清理RTC资源
             cleanupRTCResources()
             
@@ -195,6 +203,9 @@ class AIRunningCompanionManager @Inject constructor(
             
             // 先断开连接
             disconnect()
+            
+            // 清理音频路由管理器
+            audioRouteManager.cleanup()
             
             // 取消所有协程
             scope.coroutineContext.cancelChildren()
@@ -258,6 +269,23 @@ class AIRunningCompanionManager @Inject constructor(
         }
     }
     
+    /**
+     * 获取当前音频设备信息
+     */
+    fun getCurrentAudioDevice() = audioRouteManager.currentAudioDevice
+    
+    /**
+     * 获取可用音频设备列表
+     */
+    fun getAvailableAudioDevices() = audioRouteManager.availableDevices
+    
+    /**
+     * 手动切换音频设备
+     */
+    fun switchAudioDevice(deviceType: AudioRouteManager.AudioDeviceType) {
+        audioRouteManager.switchToDevice(deviceType)
+    }
+    
     private fun setupRTCEngine() {
         try {
             val currentRoomInfo = roomInfo
@@ -313,6 +341,14 @@ class AIRunningCompanionManager @Inject constructor(
             }
             
             Timber.d("RTC引擎创建成功，开始配置音频场景")
+            
+            // 配置音频路由，优先选择蓝牙耳机等外接设备
+            try {
+                audioRouteManager.setupForAICall()
+                Timber.d("音频路由配置完成")
+            } catch (e: Exception) {
+                Timber.w(e, "配置音频路由失败，使用默认配置")
+            }
             
             // 设置音频场景为通信模式，这是最稳定的配置
             try {

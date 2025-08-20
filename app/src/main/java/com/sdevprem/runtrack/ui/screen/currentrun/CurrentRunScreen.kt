@@ -87,6 +87,8 @@ fun CurrentRunScreen(
     val aiConnectionState by viewModel.aiConnectionState.collectAsStateWithLifecycle()
     val aiLastMessage by viewModel.aiLastMessage.collectAsStateWithLifecycle()
     val aiAudioEnabled by viewModel.aiAudioEnabled.collectAsStateWithLifecycle()
+    val currentAudioDevice by viewModel.currentAudioDevice.collectAsStateWithLifecycle()
+    val availableAudioDevices by viewModel.availableAudioDevices.collectAsStateWithLifecycle()
 
     LaunchedEffect(key1 = "location_acquisition") {
         if (context.hasLocationPermission()) {
@@ -137,10 +139,13 @@ fun CurrentRunScreen(
                     connectionState = aiConnectionState,
                     lastMessage = aiLastMessage,
                     isAudioEnabled = aiAudioEnabled,
+                    currentAudioDevice = currentAudioDevice,
+                    availableAudioDevices = availableAudioDevices,
                     onConnectClick = { viewModel.connectAI() },
                     onDisconnectClick = { viewModel.disconnectAI() },
                     onToggleAudio = { viewModel.toggleAIAudio() },
-                    onVoiceInput = { showVoiceInputDialog = true }
+                    onVoiceInput = { showVoiceInputDialog = true },
+                    onAudioDeviceChange = { deviceType -> viewModel.switchAudioDevice(deviceType) }
             )
         }
         ComposeUtils.SlideUpAnimatedVisibility(
