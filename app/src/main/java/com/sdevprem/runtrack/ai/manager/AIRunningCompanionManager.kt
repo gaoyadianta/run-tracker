@@ -62,8 +62,6 @@ class AIRunningCompanionManager @Inject constructor(
     private val _lastMessage = MutableStateFlow("")
     val lastMessage: StateFlow<String> = _lastMessage.asStateFlow()
     
-    private val _isAudioEnabled = MutableStateFlow(true)
-    val isAudioEnabled: StateFlow<Boolean> = _isAudioEnabled.asStateFlow()
     
     // 播报控制
     private var lastBroadcastTime = 0L
@@ -236,17 +234,6 @@ class AIRunningCompanionManager @Inject constructor(
         lastBroadcastTime = currentTime
     }
     
-    /**
-     * 发送用户语音输入到AI
-     */
-    fun sendUserMessage(message: String, runningContext: RunningContext) {
-        if (_connectionState.value != AIConnectionState.CONNECTED) {
-            return
-        }
-        
-        val prompt = buildInteractivePrompt(message, runningContext)
-        sendMessageToAI(prompt)
-    }
     
     /**
      * 设置播报间隔
@@ -255,36 +242,7 @@ class AIRunningCompanionManager @Inject constructor(
         broadcastInterval = intervalMinutes * 60000L
     }
     
-    /**
-     * 切换音频开关
-     */
-    fun toggleAudio() {
-        val enabled = !_isAudioEnabled.value
-        _isAudioEnabled.value = enabled
-        
-        if (enabled) {
-            rtcVideo?.startAudioCapture()
-        } else {
-            rtcVideo?.stopAudioCapture()
-        }
-    }
     
-    /**
-     * 获取当前音频设备信息
-     */
-    fun getCurrentAudioDevice() = audioRouteManager.currentAudioDevice
-    
-    /**
-     * 获取可用音频设备列表
-     */
-    fun getAvailableAudioDevices() = audioRouteManager.availableDevices
-    
-    /**
-     * 手动切换音频设备
-     */
-    fun switchAudioDevice(deviceType: AudioRouteManager.AudioDeviceType) {
-        audioRouteManager.switchToDevice(deviceType)
-    }
     
     private fun setupRTCEngine() {
         try {
@@ -344,8 +302,18 @@ class AIRunningCompanionManager @Inject constructor(
             
             // 配置音频路由，优先选择蓝牙耳机等外接设备
             try {
+                Timber.d("开始配置AI通话音频路由...")
                 audioRouteManager.setupForAICall()
                 Timber.d("音频路由配置完成")
+                
+                // 延迟检查音频设备状态，给蓝牙SCO时间建立连接
+                scope.launch {
+                    delay(500)
+                    val currentDevice = audioRouteManager.currentAudioDevice.value
+                    val availableDevices = audioRouteManager.availableDevices.value
+                    Timber.d("音频路由配置后状态: 当前设备=${currentDevice.displayName}, 可用设备=${availableDevices.map { it.displayName }}")
+                }
+                
             } catch (e: Exception) {
                 Timber.w(e, "配置音频路由失败，使用默认配置")
             }
@@ -360,10 +328,10 @@ class AIRunningCompanionManager @Inject constructor(
             
             Timber.d("开始音频采集")
             
-            // 开启音频采集
+            // 开启音频采集，连接后自动开始双向实时语音通话
             try {
                 rtcVideo?.startAudioCapture()
-                Timber.d("音频采集启动成功")
+                Timber.d("音频采集启动成功，已开始双向实时语音通话")
             } catch (e: Exception) {
                 Timber.e(e, "启动音频采集失败")
                 throw Exception("音频采集启动失败: ${e.message}")
@@ -657,11 +625,6 @@ class AIRunningCompanionManager @Inject constructor(
         return "${type.prompt}\n\n${context.toAIContext()}"
     }
     
-    private fun buildInteractivePrompt(userMessage: String, context: RunningContext): String {
-        return "${AIBroadcastType.INTERACTIVE_RESPONSE.prompt}\n\n" +
-                "用户说：\"$userMessage\"\n\n" +
-                "${context.toAIContext()}"
-    }
 
     /**
      * 检查是否有录音权限

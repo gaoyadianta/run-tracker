@@ -17,8 +17,27 @@ object PermissionUtils {
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     val notificationPermission = Manifest.permission.POST_NOTIFICATIONS
 
+    val bluetoothPermissions = mutableListOf<String>().apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Android 12+ 需要新的蓝牙权限
+            add(Manifest.permission.BLUETOOTH_CONNECT)
+            add(Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            // Android 11 及以下使用旧的蓝牙权限
+            add(Manifest.permission.BLUETOOTH)
+            add(Manifest.permission.BLUETOOTH_ADMIN)
+        }
+    }.toTypedArray()
+
+    val audioPermissions = arrayOf(
+        Manifest.permission.RECORD_AUDIO,
+        Manifest.permission.MODIFY_AUDIO_SETTINGS
+    )
+
     val allPermissions = mutableListOf<String>().apply {
         addAll(locationPermissions)
+        addAll(bluetoothPermissions)
+        addAll(audioPermissions)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(notificationPermission)
         }

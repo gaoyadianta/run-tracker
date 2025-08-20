@@ -49,13 +49,13 @@ class AudioRouteManager @Inject constructor(
 
     /**
      * 音频设备类型
+     * 按照Android通话场景的标准优先级排序
      */
     enum class AudioDeviceType(val displayName: String, val priority: Int) {
-        BLUETOOTH_HEADSET("蓝牙耳机", 1),
-        WIRED_HEADSET("有线耳机", 2),
-        BLUETOOTH_A2DP("蓝牙音箱", 3),
-        EARPIECE("听筒", 4),
-        SPEAKER("扬声器", 5);
+        WIRED_HEADSET("有线耳机", 1),        // 最高优先级
+        BLUETOOTH_HEADSET("蓝牙SCO", 2),     // 蓝牙SCO
+        EARPIECE("听筒", 3),                 // 听筒
+        SPEAKER("扬声器", 4);                // 最低优先级
         
         companion object {
             fun getByPriority(): List<AudioDeviceType> {
@@ -174,11 +174,29 @@ class AudioRouteManager @Inject constructor(
         try {
             Timber.d("为AI通话配置音频路由")
             
+            // 记录配置前的状态
+            val beforeMode = audioManager.mode
+            val beforeSpeakerOn = audioManager.isSpeakerphoneOn
+            val beforeScoOn = audioManager.isBluetoothScoOn
+            val beforeScoAvailable = audioManager.isBluetoothScoAvailableOffCall
+            
+            Timber.d("配置前音频状态: mode=$beforeMode, speakerOn=$beforeSpeakerOn, scoOn=$beforeScoOn, scoAvailable=$beforeScoAvailable")
+            
             // 设置音频模式为通信模式
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            Timber.d("音频模式已设置为通信模式: ${AudioManager.MODE_IN_COMMUNICATION}")
             
             // 选择最优音频设备
             selectOptimalAudioDevice()
+            
+            // 记录配置后的状态
+            val afterMode = audioManager.mode
+            val afterSpeakerOn = audioManager.isSpeakerphoneOn
+            val afterScoOn = audioManager.isBluetoothScoOn
+            val afterScoAvailable = audioManager.isBluetoothScoAvailableOffCall
+            
+            Timber.d("配置后音频状态: mode=$afterMode, speakerOn=$afterSpeakerOn, scoOn=$afterScoOn, scoAvailable=$afterScoAvailable")
+            Timber.d("当前选择的音频设备: ${_currentAudioDevice.value.displayName}")
             
         } catch (e: Exception) {
             Timber.e(e, "配置AI通话音频路由失败")
@@ -193,10 +211,14 @@ class AudioRouteManager @Inject constructor(
             val availableDevices = getAvailableAudioDevices()
             val optimalDevice = availableDevices.minByOrNull { it.priority }
             
+            Timber.d("选择最优音频设备: 可用设备=${availableDevices.size}个, 最优设备=${optimalDevice?.displayName}")
+            
             if (optimalDevice != null) {
+                Timber.d("设置最优音频设备: ${optimalDevice.displayName} (优先级: ${optimalDevice.priority})")
                 setAudioDevice(optimalDevice)
             } else {
                 // 如果没有可用设备，使用扬声器作为默认
+                Timber.w("没有可用设备，使用扬声器作为默认")
                 setAudioDevice(AudioDeviceType.SPEAKER)
             }
             
@@ -210,39 +232,54 @@ class AudioRouteManager @Inject constructor(
      */
     private fun setAudioDevice(deviceType: AudioDeviceType) {
         try {
-            Timber.d("设置音频设备: ${deviceType.displayName}")
+            Timber.d("开始设置音频设备: ${deviceType.displayName}")
+            
+            // 记录设置前的状态
+            val beforeSpeakerOn = audioManager.isSpeakerphoneOn
+            val beforeScoOn = audioManager.isBluetoothScoOn
+            val beforeScoAvailable = audioManager.isBluetoothScoAvailableOffCall
+            val beforeAudioMode = audioManager.mode
+            
+            Timber.d("设置前状态: speakerOn=$beforeSpeakerOn, scoOn=$beforeScoOn, scoAvailable=$beforeScoAvailable, audioMode=$beforeAudioMode")
             
             when (deviceType) {
-                AudioDeviceType.BLUETOOTH_HEADSET -> {
-                    // 启用蓝牙SCO
-                    audioManager.isBluetoothScoOn = true
-                    audioManager.startBluetoothSco()
-                    audioManager.isSpeakerphoneOn = false
-                }
                 AudioDeviceType.WIRED_HEADSET -> {
-                    // 有线耳机会自动路由，关闭扬声器和蓝牙
+                    // 有线耳机会自动路由，关闭扬声器和蓝牙SCO
                     audioManager.isSpeakerphoneOn = false
                     audioManager.isBluetoothScoOn = false
                     audioManager.stopBluetoothSco()
+                    Timber.d("音频路由设置为有线耳机")
+                }
+                AudioDeviceType.BLUETOOTH_HEADSET -> {
+                    // 启用蓝牙SCO
+                    audioManager.isSpeakerphoneOn = false
+                    audioManager.isBluetoothScoOn = true
+                    audioManager.startBluetoothSco()
+                    Timber.d("音频路由设置为蓝牙SCO - 已调用startBluetoothSco()")
                 }
                 AudioDeviceType.EARPIECE -> {
                     // 使用听筒
                     audioManager.isSpeakerphoneOn = false
                     audioManager.isBluetoothScoOn = false
                     audioManager.stopBluetoothSco()
+                    Timber.d("音频路由设置为听筒")
                 }
                 AudioDeviceType.SPEAKER -> {
                     // 使用扬声器
                     audioManager.isSpeakerphoneOn = true
                     audioManager.isBluetoothScoOn = false
                     audioManager.stopBluetoothSco()
-                }
-                AudioDeviceType.BLUETOOTH_A2DP -> {
-                    // A2DP设备处理
-                    audioManager.isSpeakerphoneOn = false
-                    audioManager.isBluetoothScoOn = false
+                    Timber.d("音频路由设置为扬声器")
                 }
             }
+            
+            // 记录设置后的状态
+            val afterSpeakerOn = audioManager.isSpeakerphoneOn
+            val afterScoOn = audioManager.isBluetoothScoOn
+            val afterScoAvailable = audioManager.isBluetoothScoAvailableOffCall
+            val afterAudioMode = audioManager.mode
+            
+            Timber.d("设置后状态: speakerOn=$afterSpeakerOn, scoOn=$afterScoOn, scoAvailable=$afterScoAvailable, audioMode=$afterAudioMode")
             
             _currentAudioDevice.value = deviceType
             Timber.d("音频设备设置完成: ${deviceType.displayName}")
@@ -254,31 +291,33 @@ class AudioRouteManager @Inject constructor(
 
     /**
      * 获取可用音频设备列表
+     * 按照Android通话场景的标准优先级
      */
     private fun getAvailableAudioDevices(): List<AudioDeviceType> {
         val devices = mutableListOf<AudioDeviceType>()
         
         try {
-            // 检查蓝牙耳机
-            if (isBluetoothHeadsetConnected()) {
-                devices.add(AudioDeviceType.BLUETOOTH_HEADSET)
-            }
-            
-            // 检查有线耳机
-            if (isWiredHeadsetConnected()) {
+            // 检查有线耳机（最高优先级）
+            val hasWiredHeadset = isWiredHeadsetConnected()
+            Timber.d("有线耳机检查结果: $hasWiredHeadset")
+            if (hasWiredHeadset) {
                 devices.add(AudioDeviceType.WIRED_HEADSET)
             }
             
-            // 检查蓝牙A2DP设备
-            if (isBluetoothA2dpConnected()) {
-                devices.add(AudioDeviceType.BLUETOOTH_A2DP)
+            // 检查蓝牙SCO耳机
+            val hasBluetoothHeadset = isBluetoothHeadsetConnected()
+            Timber.d("蓝牙耳机检查结果: $hasBluetoothHeadset")
+            if (hasBluetoothHeadset) {
+                devices.add(AudioDeviceType.BLUETOOTH_HEADSET)
             }
             
             // 听筒总是可用（在手机上）
             devices.add(AudioDeviceType.EARPIECE)
             
-            // 扬声器总是可用
+            // 扬声器总是可用（最低优先级）
             devices.add(AudioDeviceType.SPEAKER)
+            
+            Timber.d("可用音频设备列表: ${devices.map { "${it.displayName}(优先级:${it.priority})" }}")
             
         } catch (e: Exception) {
             Timber.e(e, "获取可用音频设备失败")
@@ -294,7 +333,18 @@ class AudioRouteManager @Inject constructor(
      */
     private fun isBluetoothHeadsetConnected(): Boolean {
         return try {
-            bluetoothHeadset?.connectedDevices?.isNotEmpty() == true
+            val hasConnectedDevices = bluetoothHeadset?.connectedDevices?.isNotEmpty() == true
+            val connectedDevicesCount = bluetoothHeadset?.connectedDevices?.size ?: 0
+            val isScoAvailable = audioManager.isBluetoothScoAvailableOffCall
+            val isScoOn = audioManager.isBluetoothScoOn
+            
+            Timber.d("蓝牙耳机连接状态检查: hasConnectedDevices=$hasConnectedDevices, connectedDevicesCount=$connectedDevicesCount, isScoAvailable=$isScoAvailable, isScoOn=$isScoOn")
+            
+            bluetoothHeadset?.connectedDevices?.forEach { device ->
+                Timber.d("已连接蓝牙设备: ${device.name} - ${device.address}")
+            }
+            
+            hasConnectedDevices
         } catch (e: Exception) {
             Timber.w(e, "检查蓝牙耳机连接状态失败")
             false
@@ -331,24 +381,6 @@ class AudioRouteManager @Inject constructor(
         }
     }
 
-    /**
-     * 检查蓝牙A2DP设备是否连接
-     */
-    private fun isBluetoothA2dpConnected(): Boolean {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                devices.any { device ->
-                    device.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
-                }
-            } else {
-                audioManager.isBluetoothA2dpOn
-            }
-        } catch (e: Exception) {
-            Timber.w(e, "检查蓝牙A2DP连接状态失败")
-            false
-        }
-    }
 
     /**
      * 更新可用设备列表

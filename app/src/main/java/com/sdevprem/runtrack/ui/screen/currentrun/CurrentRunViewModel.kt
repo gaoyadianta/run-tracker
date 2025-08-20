@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.sdevprem.runtrack.ai.manager.AIRunningCompanionManager
 import com.sdevprem.runtrack.ai.model.AIBroadcastType
 import com.sdevprem.runtrack.ai.model.RunningContext
-import com.sdevprem.runtrack.ai.speech.MockSpeechRecognizer
 import com.sdevprem.runtrack.data.model.Run
 import com.sdevprem.runtrack.data.repository.AppRepository
 import com.sdevprem.runtrack.di.ApplicationScope
@@ -33,7 +32,6 @@ class CurrentRunViewModel @Inject constructor(
     private val repository: AppRepository,
     val batteryOptimizationManager: com.sdevprem.runtrack.background.tracking.battery.BatteryOptimizationManager,
     val aiCompanionManager: AIRunningCompanionManager,
-    private val mockSpeechRecognizer: MockSpeechRecognizer,
     @ApplicationScope
     private val appCoroutineScope: CoroutineScope,
     @IoDispatcher
@@ -51,13 +49,9 @@ class CurrentRunViewModel @Inject constructor(
     // AI陪跑相关状态
     val aiConnectionState = aiCompanionManager.connectionState
     val aiLastMessage = aiCompanionManager.lastMessage
-    val aiAudioEnabled = aiCompanionManager.isAudioEnabled
-    val currentAudioDevice = aiCompanionManager.getCurrentAudioDevice()
-    val availableAudioDevices = aiCompanionManager.getAvailableAudioDevices()
     
     private var lastBroadcastDistance = 0f
     private var previousPace = 0f
-    private var speechRecognitionJob: kotlinx.coroutines.Job? = null
     
     init {
         // 初始化AI陪跑管理器
@@ -118,23 +112,6 @@ class CurrentRunViewModel @Inject constructor(
         aiCompanionManager.disconnect()
     }
     
-    fun toggleAIAudio() {
-        aiCompanionManager.toggleAudio()
-    }
-    
-    fun sendVoiceMessage(message: String) {
-        val runningContext = createRunningContext()
-        aiCompanionManager.sendUserMessage(message, runningContext)
-    }
-    
-    fun triggerManualBroadcast(type: AIBroadcastType) {
-        val runningContext = createRunningContext()
-        aiCompanionManager.triggerBroadcast(runningContext, type)
-    }
-    
-    fun switchAudioDevice(deviceType: com.sdevprem.runtrack.ai.audio.AudioRouteManager.AudioDeviceType) {
-        aiCompanionManager.switchAudioDevice(deviceType)
-    }
     
     private fun handleRunningStateChange(runState: CurrentRunStateWithCalories, duration: Long) {
         if (!runState.currentRunState.isTracking) return
@@ -184,27 +161,9 @@ class CurrentRunViewModel @Inject constructor(
         )
     }
     
-    // 语音识别相关方法
-    fun startMockSpeechRecognition(onResult: (String) -> Unit) {
-        speechRecognitionJob?.cancel()
-        speechRecognitionJob = viewModelScope.launch {
-            try {
-                val result = mockSpeechRecognizer.recognizeSpeech()
-                onResult(result)
-            } catch (e: Exception) {
-                onResult("语音识别失败")
-            }
-        }
-    }
-    
-    fun stopMockSpeechRecognition() {
-        speechRecognitionJob?.cancel()
-        speechRecognitionJob = null
-    }
     
     override fun onCleared() {
         super.onCleared()
         aiCompanionManager.disconnect()
-        speechRecognitionJob?.cancel()
     }
 }

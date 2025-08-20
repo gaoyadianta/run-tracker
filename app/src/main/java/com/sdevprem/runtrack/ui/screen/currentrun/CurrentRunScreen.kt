@@ -42,7 +42,6 @@ import com.sdevprem.runtrack.ui.common.compose.animation.ComposeUtils
 import com.sdevprem.runtrack.ui.screen.currentrun.component.AICompanionCard
 import com.sdevprem.runtrack.ui.screen.currentrun.component.CurrentRunStatsCard
 import com.sdevprem.runtrack.ui.screen.currentrun.component.Map
-import com.sdevprem.runtrack.ui.screen.currentrun.component.VoiceInputDialog
 import com.sdevprem.runtrack.ui.theme.AppTheme
 import kotlinx.coroutines.delay
 
@@ -76,9 +75,6 @@ fun CurrentRunScreen(
     var isRunningFinished by rememberSaveable { mutableStateOf(false) }
     var shouldShowRunningCard by rememberSaveable { mutableStateOf(false) }
     var showBatteryOptimizationDialog by remember { mutableStateOf(false) }
-    var showVoiceInputDialog by remember { mutableStateOf(false) }
-    var isListening by remember { mutableStateOf(false) }
-    var recognizedText by remember { mutableStateOf("") }
     
     val runState by viewModel.currentRunStateWithCalories.collectAsStateWithLifecycle()
     val runningDurationInMillis by viewModel.runningDurationInMillis.collectAsStateWithLifecycle()
@@ -86,9 +82,6 @@ fun CurrentRunScreen(
     // AI陪跑状态
     val aiConnectionState by viewModel.aiConnectionState.collectAsStateWithLifecycle()
     val aiLastMessage by viewModel.aiLastMessage.collectAsStateWithLifecycle()
-    val aiAudioEnabled by viewModel.aiAudioEnabled.collectAsStateWithLifecycle()
-    val currentAudioDevice by viewModel.currentAudioDevice.collectAsStateWithLifecycle()
-    val availableAudioDevices by viewModel.availableAudioDevices.collectAsStateWithLifecycle()
 
     LaunchedEffect(key1 = "location_acquisition") {
         if (context.hasLocationPermission()) {
@@ -138,14 +131,8 @@ fun CurrentRunScreen(
             AICompanionCard(
                     connectionState = aiConnectionState,
                     lastMessage = aiLastMessage,
-                    isAudioEnabled = aiAudioEnabled,
-                    currentAudioDevice = currentAudioDevice,
-                    availableAudioDevices = availableAudioDevices,
                     onConnectClick = { viewModel.connectAI() },
-                    onDisconnectClick = { viewModel.disconnectAI() },
-                    onToggleAudio = { viewModel.toggleAIAudio() },
-                    onVoiceInput = { showVoiceInputDialog = true },
-                    onAudioDeviceChange = { deviceType -> viewModel.switchAudioDevice(deviceType) }
+                    onDisconnectClick = { viewModel.disconnectAI() }
             )
         }
         ComposeUtils.SlideUpAnimatedVisibility(
@@ -169,34 +156,6 @@ fun CurrentRunScreen(
             )
         }
         
-        // 语音输入对话框
-        if (showVoiceInputDialog) {
-            VoiceInputDialog(
-                    isListening = isListening,
-                    recognizedText = recognizedText,
-                    onStartListening = { 
-                        isListening = true
-                        // 模拟语音识别过程
-                        viewModel.startMockSpeechRecognition { result ->
-                            recognizedText = result
-                            isListening = false
-                        }
-                    },
-                    onStopListening = { 
-                        isListening = false
-                        viewModel.stopMockSpeechRecognition()
-                    },
-                    onSendMessage = { message ->
-                        viewModel.sendVoiceMessage(message)
-                        recognizedText = ""
-                    },
-                    onDismiss = { 
-                        showVoiceInputDialog = false
-                        isListening = false
-                        recognizedText = ""
-                    }
-            )
-        }
     }
 }
 
