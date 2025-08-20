@@ -45,6 +45,8 @@ android {
     }
     buildFeatures {
         compose = true
+        // Enable BuildConfig generation (silences buildConfigFields warning)
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.1"
@@ -133,6 +135,7 @@ dependencies {
     
     //coze webrtc - 真实实现
     implementation("com.coze:coze-api:0.2.1")
+    // Volcengine ByteRTC SDK artifact (contains com.ss.bytertc.engine.* classes)
     implementation("com.volcengine:VolcEngineRTC:3.58.1.19400")
     implementation("com.fasterxml.jackson.core:jackson-core:2.15.2")
     implementation("com.fasterxml.jackson.core:jackson-databind:2.15.2")

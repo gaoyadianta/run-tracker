@@ -10,9 +10,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        // 添加火山引擎RTC仓库
+        // ByteDance ByteRTC repository
         maven {
-            url = uri("https://artifact.bytedance.com/repository/VolcEngineRTC/")
+            url = uri("https://artifact.bytedance.com/repository/Volcengine/")
         }
         // 备用仓库
         maven {

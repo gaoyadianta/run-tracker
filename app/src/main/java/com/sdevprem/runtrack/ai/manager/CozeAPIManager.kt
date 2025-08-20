@@ -10,12 +10,12 @@ import javax.inject.Singleton
 class CozeAPIManager @Inject constructor(
     private val cozeConfig: CozeConfig
 ) {
-    private val cozeAPI: CozeAPI by lazy {
+    private val cozeAPIInstance: CozeAPI by lazy {
         CozeAPI.Builder()
             .auth(TokenAuth(cozeConfig.cozeAccessToken))
             .baseURL(cozeConfig.baseURL)
             .build()
     }
 
-    fun getCozeAPI(): CozeAPI = cozeAPI
+    fun getCozeAPI(): CozeAPI = cozeAPIInstance
 }

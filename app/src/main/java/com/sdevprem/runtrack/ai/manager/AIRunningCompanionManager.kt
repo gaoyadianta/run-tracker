@@ -14,13 +14,12 @@ import com.sdevprem.runtrack.ai.model.AIConnectionState
 import com.sdevprem.runtrack.ai.model.RunningContext
 import com.ss.bytertc.engine.RTCRoom
 import com.ss.bytertc.engine.RTCVideo
+import com.ss.bytertc.engine.RTCRoomConfig
 import com.ss.bytertc.engine.UserInfo
 import com.ss.bytertc.engine.data.StreamIndex
 import com.ss.bytertc.engine.handler.IRTCRoomEventHandler
 import com.ss.bytertc.engine.handler.IRTCVideoEventHandler
-import com.ss.bytertc.engine.type.ChannelProfile
-import com.ss.bytertc.engine.type.MessageConfig
-import com.ss.bytertc.engine.type.RTCRoomConfig
+import com.ss.bytertc.engine.type.*
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +32,8 @@ import timber.log.Timber
 import java.nio.ByteBuffer
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancelChildren
 
 @Singleton
 class AIRunningCompanionManager @Inject constructor(
@@ -85,10 +86,36 @@ class AIRunningCompanionManager @Inject constructor(
     fun connect() {
         if (_connectionState.value == AIConnectionState.CONNECTING || 
             _connectionState.value == AIConnectionState.CONNECTED) {
+            Timber.d("已在连接中或已连接，忽略重复连接请求")
+            return
+        }
+        
+        // 检查录音权限
+        if (!hasAudioPermission()) {
+            Timber.e("缺少录音权限，无法连接AI陪跑服务")
+            _connectionState.value = AIConnectionState.ERROR
+            return
+        }
+        
+        // 确保初始化完成
+        if (cozeAPI == null) {
+            initialize()
+        }
+        
+        if (!cozeConfig.isConfigured()) {
+            Timber.e("Coze配置不完整，无法连接AI陪跑服务")
+            _connectionState.value = AIConnectionState.ERROR
+            return
+        }
+        
+        if (cozeAPI == null) {
+            Timber.e("CozeAPI未初始化，无法连接AI陪跑服务")
+            _connectionState.value = AIConnectionState.ERROR
             return
         }
         
         _connectionState.value = AIConnectionState.CONNECTING
+        Timber.d("开始连接AI陪跑服务...")
         
         scope.launch(Dispatchers.IO) {
             try {
@@ -98,14 +125,26 @@ class AIRunningCompanionManager @Inject constructor(
                     .voiceID(cozeConfig.voiceID)
                     .build()
                 
-                roomInfo = cozeAPI?.audio()?.rooms()?.create(req)
+                Timber.d("创建Coze房间请求: botID=${cozeConfig.botID}, voiceID=${cozeConfig.voiceID}")
+                
+                val tempRoomInfo = cozeAPI!!.audio().rooms().create(req)
+                
+                if (tempRoomInfo == null) {
+                    throw Exception("创建Coze房间失败，返回null")
+                }
+                
+                Timber.d("Coze房间创建成功: roomID=${tempRoomInfo.roomID}, appID=${tempRoomInfo.appID}")
+                
+                roomInfo = tempRoomInfo
                 
                 scope.launch(Dispatchers.Main) {
                     setupRTCEngine()
                 }
             } catch (e: Exception) {
                 Timber.e(e, "连接AI陪跑服务失败")
-                _connectionState.value = AIConnectionState.ERROR
+                scope.launch(Dispatchers.Main) {
+                    _connectionState.value = AIConnectionState.ERROR
+                }
             }
         }
     }
@@ -115,23 +154,54 @@ class AIRunningCompanionManager @Inject constructor(
      */
     fun disconnect() {
         try {
-            rtcRoom?.apply {
-                leaveRoom()
-                destroy()
-            }
-            rtcVideo?.apply {
-                stopAudioCapture()
-                RTCVideo.destroyRTCVideo()
-            }
+            Timber.d("开始断开AI陪跑服务")
             
-            rtcRoom = null
-            rtcVideo = null
+            // 更新状态
+            _connectionState.value = AIConnectionState.DISCONNECTED
+            
+            // 清理RTC资源
+            cleanupRTCResources()
+            
+            // 清理房间信息
             roomInfo = null
             
-            _connectionState.value = AIConnectionState.DISCONNECTED
             Timber.d("AI陪跑服务已断开")
         } catch (e: Exception) {
             Timber.e(e, "断开AI陪跑服务时出错")
+            // 即使出错也要确保状态正确
+            _connectionState.value = AIConnectionState.DISCONNECTED
+        }
+    }
+    
+    /**
+     * 检查RTC资源状态
+     */
+    private fun checkRTCResources(): Boolean {
+        val rtcVideoValid = rtcVideo != null
+        val rtcRoomValid = rtcRoom != null
+        val roomInfoValid = roomInfo != null
+        
+        Timber.d("RTC资源状态检查: RTCVideo=$rtcVideoValid, RTCRoom=$rtcRoomValid, RoomInfo=$roomInfoValid")
+        
+        return rtcVideoValid && rtcRoomValid && roomInfoValid
+    }
+    
+    /**
+     * 安全的资源销毁
+     */
+    fun destroy() {
+        try {
+            Timber.d("开始销毁AI陪跑管理器")
+            
+            // 先断开连接
+            disconnect()
+            
+            // 取消所有协程
+            scope.coroutineContext.cancelChildren()
+            
+            Timber.d("AI陪跑管理器销毁完成")
+        } catch (e: Exception) {
+            Timber.e(e, "销毁AI陪跑管理器时出错")
         }
     }
     
@@ -190,29 +260,98 @@ class AIRunningCompanionManager @Inject constructor(
     
     private fun setupRTCEngine() {
         try {
+            val currentRoomInfo = roomInfo
+            if (currentRoomInfo == null) {
+                throw Exception("房间信息为空，无法设置RTC引擎")
+            }
+            
+            if (currentRoomInfo.appID.isNullOrBlank()) {
+                throw Exception("AppID为空，无法创建RTC引擎")
+            }
+            
+            if (currentRoomInfo.roomID.isNullOrBlank()) {
+                throw Exception("RoomID为空，无法创建RTC房间")
+            }
+            
+            if (currentRoomInfo.token.isNullOrBlank()) {
+                throw Exception("Token为空，无法加入RTC房间")
+            }
+            
+            if (currentRoomInfo.uid.isNullOrBlank()) {
+                throw Exception("UID为空，无法加入RTC房间")
+            }
+            
+            Timber.d("开始创建RTC引擎，AppID: ${currentRoomInfo.appID}")
+            
+            // 先清理之前的实例
+            try {
+                rtcRoom?.apply {
+                    leaveRoom()
+                    destroy()
+                }
+                rtcVideo?.apply {
+                    stopAudioCapture()
+                    RTCVideo.destroyRTCVideo()
+                }
+                rtcRoom = null
+                rtcVideo = null
+            } catch (e: Exception) {
+                Timber.w(e, "清理之前的RTC实例时出错，继续创建新实例")
+            }
+            
             // 创建RTC引擎
             rtcVideo = RTCVideo.createRTCVideo(
-                context,
-                roomInfo?.appID,
+                context.applicationContext, // 使用applicationContext避免内存泄漏
+                currentRoomInfo.appID,
                 rtcVideoEventHandler,
                 null,
                 null
             )
             
-            // 开启音频采集
-            rtcVideo?.startAudioCapture()
+            if (rtcVideo == null) {
+                throw Exception("创建RTC引擎失败，返回null")
+            }
             
-            // 创建房间
-            rtcRoom = rtcVideo?.createRTCRoom(roomInfo?.roomID)?.apply {
-                setRTCRoomEventHandler(rtcRoomEventHandler)
+            Timber.d("RTC引擎创建成功，开始配置音频场景")
+            
+            // 设置音频场景为通信模式，这是最稳定的配置
+            try {
+                rtcVideo?.setAudioScenario(com.ss.bytertc.engine.type.AudioScenarioType.AUDIO_SCENARIO_COMMUNICATION)
+                Timber.d("音频场景设置完成：通信模式")
+            } catch (e: Exception) {
+                Timber.w(e, "设置音频场景失败，使用默认配置")
+            }
+            
+            Timber.d("开始音频采集")
+            
+            // 开启音频采集
+            try {
+                rtcVideo?.startAudioCapture()
+                Timber.d("音频采集启动成功")
+            } catch (e: Exception) {
+                Timber.e(e, "启动音频采集失败")
+                throw Exception("音频采集启动失败: ${e.message}")
+            }
+            
+            // 开始创建RTC房间，RoomID: ${currentRoomInfo.roomID}")
+            rtcRoom = rtcVideo?.createRTCRoom(currentRoomInfo.roomID)
+            rtcRoom?.let { room ->
+                room.setRTCRoomEventHandler(rtcRoomEventHandler)
+                Timber.d("RTC房间创建成功，开始配置房间参数")
                 
-                val userInfo = UserInfo(roomInfo?.uid, "")
+                // 创建并配置房间配置对象
                 val roomConfig = RTCRoomConfig(
-                    ChannelProfile.CHANNEL_PROFILE_CHAT_ROOM,
+                    ChannelProfile.CHANNEL_PROFILE_COMMUNICATION,
                     true, true, true
                 )
                 
-                joinRoom(roomInfo?.token, userInfo, roomConfig)
+                // 创建用户信息
+                val userInfo = UserInfo(currentRoomInfo.uid, "")
+                
+                Timber.d("房间配置完成，开始加入房间，UID: ${currentRoomInfo.uid}")
+                room.joinRoom(currentRoomInfo.token, userInfo, roomConfig)
+            } ?: run {
+                throw Exception("RTC房间创建失败")
             }
             
             _connectionState.value = AIConnectionState.CONNECTED
@@ -221,6 +360,49 @@ class AIRunningCompanionManager @Inject constructor(
         } catch (e: Exception) {
             Timber.e(e, "设置RTC引擎失败")
             _connectionState.value = AIConnectionState.ERROR
+            
+            // 清理资源
+            cleanupRTCResources()
+        }
+    }
+    
+    /**
+     * 清理RTC资源
+     */
+    private fun cleanupRTCResources() {
+        try {
+            rtcRoom?.apply {
+                try {
+                    leaveRoom()
+                } catch (e: Exception) {
+                    Timber.w(e, "离开房间时出错")
+                }
+                try {
+                    destroy()
+                } catch (e: Exception) {
+                    Timber.w(e, "销毁房间时出错")
+                }
+            }
+            
+            rtcVideo?.apply {
+                try {
+                    stopAudioCapture()
+                } catch (e: Exception) {
+                    Timber.w(e, "停止音频采集时出错")
+                }
+                try {
+                    RTCVideo.destroyRTCVideo()
+                } catch (e: Exception) {
+                    Timber.w(e, "销毁RTC引擎时出错")
+                }
+            }
+            
+            rtcRoom = null
+            rtcVideo = null
+            
+            Timber.d("RTC资源清理完成")
+        } catch (e: Exception) {
+            Timber.e(e, "清理RTC资源时出错")
         }
     }
     
@@ -231,17 +413,52 @@ class AIRunningCompanionManager @Inject constructor(
         
         override fun onError(err: Int) {
             Timber.e("RTC错误: $err")
-            _connectionState.value = AIConnectionState.ERROR
+            // 根据错误码提供更详细的错误信息
+            val errorMessage = getRTCErrorMessage(err)
+            Timber.e("RTC错误详情: $errorMessage")
+            
+            // 对于严重错误，更新连接状态
+            if (isSeriousRTCError(err)) {
+                scope.launch(Dispatchers.Main) {
+                    _connectionState.value = AIConnectionState.ERROR
+                    // 清理资源
+                    cleanupRTCResources()
+                }
+            }
         }
     }
     
     private val rtcRoomEventHandler = object : IRTCRoomEventHandler() {
         override fun onRoomStateChanged(roomId: String, uid: String, state: Int, extraInfo: String) {
-            Timber.d("房间状态变化: roomId=$roomId, uid=$uid, state=$state")
+            Timber.d("房间状态变化: roomId=$roomId, uid=$uid, state=$state, extraInfo=$extraInfo")
+            
+            // 根据房间状态更新连接状态
+            when (state) {
+                1 -> { // 加入房间成功
+                    Timber.d("成功加入房间")
+                    scope.launch(Dispatchers.Main) {
+                        _connectionState.value = AIConnectionState.CONNECTED
+                    }
+                }
+                2 -> { // 离开房间
+                    Timber.d("离开房间")
+                    scope.launch(Dispatchers.Main) {
+                        _connectionState.value = AIConnectionState.DISCONNECTED
+                    }
+                }
+                3 -> { // 房间连接失败
+                    Timber.e("房间连接失败")
+                    scope.launch(Dispatchers.Main) {
+                        _connectionState.value = AIConnectionState.ERROR
+                    }
+                }
+            }
         }
         
         override fun onUserMessageReceived(uid: String, message: String) {
             try {
+                Timber.d("收到用户消息: uid=$uid, message长度=${message.length}")
+                
                 val messageMap = mapper.readValue<Map<String, Any>>(
                     message,
                     object : TypeReference<Map<String, Any>>() {}
@@ -258,18 +475,116 @@ class AIRunningCompanionManager @Inject constructor(
                     ChatEventType.CONVERSATION_MESSAGE_DELTA.value -> {
                         val data = jsonMap["data"] as? String
                         data?.let { 
-                            val msg = mapper.readValue(it, com.coze.openapi.client.connversations.message.model.Message::class.java)
-                            updateMessage(msg.content)
+                            try {
+                                // 简化消息解析，直接使用data内容
+                                // 如果data是JSON字符串，尝试解析；否则直接使用
+                                val messageContent = try {
+                                    val dataMap = mapper.readValue<Map<String, Any>>(data, object : TypeReference<Map<String, Any>>() {})
+                                    dataMap["content"] as? String ?: data
+                                } catch (e: Exception) {
+                                    // 如果解析失败，直接使用原始数据
+                                    data
+                                }
+                                updateMessage(messageContent)
+                            } catch (e: Exception) {
+                                Timber.e(e, "解析消息内容失败")
+                            }
                         }
                     }
                     ChatEventType.CONVERSATION_MESSAGE_COMPLETED.value -> {
-                        // 消息完成，可以进行后续处理
                         Timber.d("AI消息播报完成")
                     }
                 }
             } catch (e: Exception) {
                 Timber.e(e, "解析AI消息失败")
             }
+        }
+        
+        override fun onRoomWarning(warn: Int) {
+            Timber.w("房间警告: $warn")
+        }
+        
+        override fun onRoomError(err: Int) {
+            Timber.e("房间错误: $err")
+            val errorMessage = getRoomErrorMessage(err)
+            Timber.e("房间错误详情: $errorMessage")
+            
+            scope.launch(Dispatchers.Main) {
+                _connectionState.value = AIConnectionState.ERROR
+                // 对于可恢复的错误，尝试重新连接
+                if (isRecoverableRoomError(err)) {
+                    Timber.d("检测到可恢复错误，准备重连...")
+                    // 延迟重连，避免立即重连可能导致的循环
+                    scope.launch(Dispatchers.Main) {
+                        delay(3000) // 3秒后重连
+                        if (_connectionState.value == AIConnectionState.ERROR) {
+                            Timber.d("开始自动重连...")
+                            connect()
+                        }
+                    }
+                }
+            }
+        }
+        
+        override fun onLeaveRoom(stats: com.ss.bytertc.engine.type.RTCRoomStats) {
+            Timber.d("离开房间，统计信息: $stats")
+            scope.launch(Dispatchers.Main) {
+                _connectionState.value = AIConnectionState.DISCONNECTED
+            }
+        }
+    }
+    
+    /**
+     * 获取RTC错误信息
+     */
+    private fun getRTCErrorMessage(errorCode: Int): String {
+        return when (errorCode) {
+            -1001 -> "网络连接失败"
+            -1002 -> "服务器连接失败"
+            -1003 -> "参数错误"
+            -1004 -> "权限不足"
+            -1005 -> "资源不足"
+            -1006 -> "操作超时"
+            -1007 -> "设备不支持"
+            -1008 -> "版本不兼容"
+            else -> "未知RTC错误: $errorCode"
+        }
+    }
+    
+    /**
+     * 获取房间错误信息
+     */
+    private fun getRoomErrorMessage(errorCode: Int): String {
+        return when (errorCode) {
+            -1006 -> "连接超时或Token过期"
+            -1001 -> "网络连接失败"
+            -1002 -> "服务器连接失败"
+            -1003 -> "房间不存在或已关闭"
+            -1004 -> "用户被踢出房间"
+            -1005 -> "房间人数已满"
+            -1007 -> "权限不足"
+            -1008 -> "Token无效"
+            else -> "房间连接错误: $errorCode"
+        }
+    }
+    
+    /**
+     * 判断是否为严重的RTC错误
+     */
+    private fun isSeriousRTCError(errorCode: Int): Boolean {
+        return when (errorCode) {
+            -1001, -1002, -1003, -1004, -1005, -1006 -> true
+            else -> false
+        }
+    }
+    
+    /**
+     * 判断是否为可恢复的房间错误
+     */
+    private fun isRecoverableRoomError(errorCode: Int): Boolean {
+        return when (errorCode) {
+            -1006, -1001, -1002 -> true // 网络相关错误可以重试
+            else -> false
         }
     }
     
@@ -310,5 +625,20 @@ class AIRunningCompanionManager @Inject constructor(
         return "${AIBroadcastType.INTERACTIVE_RESPONSE.prompt}\n\n" +
                 "用户说：\"$userMessage\"\n\n" +
                 "${context.toAIContext()}"
+    }
+
+    /**
+     * 检查是否有录音权限
+     */
+    private fun hasAudioPermission(): Boolean {
+        return try {
+            val permission = android.Manifest.permission.RECORD_AUDIO
+            val granted = context.checkSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            Timber.d("录音权限检查结果: $granted")
+            granted
+        } catch (e: Exception) {
+            Timber.e(e, "检查录音权限时出错")
+            false
+        }
     }
 }
