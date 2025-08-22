@@ -12,6 +12,8 @@ import com.sdevprem.runtrack.ai.config.CozeConfig
 import com.sdevprem.runtrack.ai.model.AIBroadcastType
 import com.sdevprem.runtrack.ai.model.AIConnectionState
 import com.sdevprem.runtrack.ai.model.RunningContext
+import com.sdevprem.runtrack.ai.model.AIBroadcastState
+import com.sdevprem.runtrack.ai.model.SummaryBroadcastState
 import com.sdevprem.runtrack.ai.audio.AudioRouteManager
 import com.ss.bytertc.engine.RTCRoom
 import com.ss.bytertc.engine.RTCVideo
@@ -62,10 +64,14 @@ class AIRunningCompanionManager @Inject constructor(
     private val _lastMessage = MutableStateFlow("")
     val lastMessage: StateFlow<String> = _lastMessage.asStateFlow()
     
+    // 总结播报状态管理
+    private val _summaryBroadcastState = MutableStateFlow(SummaryBroadcastState())
+    val summaryBroadcastState: StateFlow<SummaryBroadcastState> = _summaryBroadcastState.asStateFlow()
     
     // 播报控制
     private var lastBroadcastTime = 0L
     private var broadcastInterval = 120000L // 2分钟间隔
+    private var isProcessingSummary = false // 标记是否正在处理总结播报
     
     /**
      * 初始化AI陪跑功能
@@ -222,16 +228,46 @@ class AIRunningCompanionManager @Inject constructor(
             return
         }
         
-        val currentTime = System.currentTimeMillis()
-        if (currentTime - lastBroadcastTime < broadcastInterval) {
-            return // 播报间隔未到
+        // 如果是总结播报，跳过时间间隔检查
+        if (broadcastType != AIBroadcastType.RUN_SUMMARY) {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastBroadcastTime < broadcastInterval) {
+                return // 播报间隔未到
+            }
+            lastBroadcastTime = currentTime
         }
         
         val type = broadcastType ?: AIBroadcastType.getByContext(runningContext)
         val prompt = buildPrompt(type, runningContext)
         
         sendMessageToAI(prompt)
-        lastBroadcastTime = currentTime
+    }
+    
+    /**
+     * 触发跑步总结播报
+     */
+    fun triggerRunSummary(runningContext: RunningContext) {
+        if (_connectionState.value != AIConnectionState.CONNECTED) {
+            Timber.w("AI未连接，无法触发跑步总结")
+            return
+        }
+        
+        Timber.d("开始触发跑步总结播报")
+        
+        // 更新总结播报状态
+        _summaryBroadcastState.value = _summaryBroadcastState.value.copy(
+            isGeneratingSummary = true,
+            broadcastState = AIBroadcastState.BROADCASTING,
+            shouldAutoDisconnectAfterSummary = true
+        )
+        
+        isProcessingSummary = true
+        
+        // 清空之前的消息，准备接收总结内容
+        _lastMessage.value = ""
+        
+        // 触发总结播报
+        triggerBroadcast(runningContext, AIBroadcastType.RUN_SUMMARY)
     }
     
     
@@ -497,6 +533,12 @@ class AIRunningCompanionManager @Inject constructor(
                     }
                     ChatEventType.CONVERSATION_MESSAGE_COMPLETED.value -> {
                         Timber.d("AI消息播报完成")
+                        
+                        // 检查是否是总结播报完成
+                        if (isProcessingSummary) {
+                            Timber.d("检测到跑步总结播报完成")
+                            onSummaryBroadcastCompleted()
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -623,6 +665,37 @@ class AIRunningCompanionManager @Inject constructor(
     
     private fun buildPrompt(type: AIBroadcastType, context: RunningContext): String {
         return "${type.prompt}\n\n${context.toAIContext()}"
+    }
+    
+    /**
+     * 处理总结播报完成
+     */
+    private fun onSummaryBroadcastCompleted() {
+        Timber.d("处理总结播报完成")
+        
+        // 更新总结播报状态为完成
+        _summaryBroadcastState.value = _summaryBroadcastState.value.copy(
+            broadcastState = AIBroadcastState.COMPLETED,
+            isGeneratingSummary = false
+        )
+        
+        isProcessingSummary = false
+        
+        // 如果需要自动断开连接
+        if (_summaryBroadcastState.value.shouldAutoDisconnectAfterSummary) {
+            Timber.d("总结播报完成，准备自动断开AI连接")
+            
+            // 延迟断开，确保音频播放完整
+            scope.launch {
+                delay(1000) // 1秒缓冲时间
+                
+                Timber.d("自动断开AI连接")
+                disconnect()
+                
+                // 重置总结播报状态
+                _summaryBroadcastState.value = SummaryBroadcastState()
+            }
+        }
     }
     
 

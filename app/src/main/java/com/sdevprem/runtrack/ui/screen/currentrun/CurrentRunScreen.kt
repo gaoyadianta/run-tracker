@@ -80,8 +80,9 @@ fun CurrentRunScreen(
     val runningDurationInMillis by viewModel.runningDurationInMillis.collectAsStateWithLifecycle()
     
     // AI陪跑状态
-    val aiConnectionState by viewModel.aiConnectionState.collectAsStateWithLifecycle()
     val aiLastMessage by viewModel.aiLastMessage.collectAsStateWithLifecycle()
+    val integratedRunState by viewModel.integratedRunState.collectAsStateWithLifecycle()
+    val toastMessage by viewModel.toastMessage.collectAsStateWithLifecycle()
 
     LaunchedEffect(key1 = "location_acquisition") {
         if (context.hasLocationPermission()) {
@@ -98,6 +99,14 @@ fun CurrentRunScreen(
     LaunchedEffect(key1 = "battery_optimization_check") {
         if (viewModel.batteryOptimizationManager.shouldRequestBatteryOptimization()) {
             showBatteryOptimizationDialog = true
+        }
+    }
+
+    // 显示Toast消息
+    LaunchedEffect(key1 = toastMessage) {
+        toastMessage?.let { message ->
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            viewModel.clearToastMessage()
         }
     }
 
@@ -129,7 +138,7 @@ fun CurrentRunScreen(
                 visible = shouldShowRunningCard
         ) {
             AICompanionCard(
-                    connectionState = aiConnectionState,
+                    integratedRunState = integratedRunState,
                     lastMessage = aiLastMessage,
                     onConnectClick = { viewModel.connectAI() },
                     onDisconnectClick = { viewModel.disconnectAI() }

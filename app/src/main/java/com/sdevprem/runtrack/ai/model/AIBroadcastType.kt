@@ -37,6 +37,11 @@ enum class AIBroadcastType(val description: String, val prompt: String) {
     INTERACTIVE_RESPONSE(
         "互动回应",
         "用户刚刚说了话，请作为一个贴心的跑步伙伴，根据用户的话语和当前跑步状态给出合适的回应。语言要自然亲切，像朋友一样。回复控制在40字以内。"
+    ),
+    
+    RUN_SUMMARY(
+        "跑步总结",
+        "用户刚刚完成了这次跑步！请作为专业的跑步教练，根据用户的跑步数据（距离、时间、配速、表现等）给出完整的跑步总结和鼓励。包括对表现的点评、改进建议，以及下次训练的建议。语言要专业、鼓励且温暖。回复控制在100字以内。"
     );
     
     companion object {

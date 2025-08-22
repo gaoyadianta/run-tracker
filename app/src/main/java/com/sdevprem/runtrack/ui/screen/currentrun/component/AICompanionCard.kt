@@ -23,15 +23,18 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sdevprem.runtrack.ai.model.AIConnectionState
+import com.sdevprem.runtrack.ai.model.IntegratedRunState
+import com.sdevprem.runtrack.ai.model.RunningState
 
 @Composable
 fun AICompanionCard(
     modifier: Modifier = Modifier,
-    connectionState: AIConnectionState,
+    integratedRunState: IntegratedRunState,
     lastMessage: String,
     onConnectClick: () -> Unit,
     onDisconnectClick: () -> Unit
 ) {
+    val connectionState = integratedRunState.aiConnectionState
     Card(
         modifier = modifier,
         shape = RoundedCornerShape(16.dp),
@@ -68,12 +71,7 @@ fun AICompanionCard(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = when (connectionState) {
-                            AIConnectionState.CONNECTED -> "AI陪跑已连接"
-                            AIConnectionState.CONNECTING -> "连接中..."
-                            AIConnectionState.ERROR -> "连接失败"
-                            AIConnectionState.DISCONNECTED -> "AI陪跑未连接"
-                        },
+                        text = getStatusText(integratedRunState),
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
@@ -136,6 +134,27 @@ fun AICompanionCard(
             }
             
         }
+    }
+}
+
+/**
+ * 根据集成运行状态获取状态文本
+ */
+private fun getStatusText(integratedRunState: IntegratedRunState): String {
+    return when {
+        // 优先显示跑步状态相关的AI状态
+        integratedRunState.runningState == RunningState.STARTING -> "正在启动AI陪跑..."
+        integratedRunState.runningState == RunningState.FINISHING && integratedRunState.isGeneratingSummary -> "AI正在生成跑步总结..."
+        
+        // 根据AI连接状态显示
+        integratedRunState.aiConnectionState == AIConnectionState.CONNECTED && integratedRunState.runningState == RunningState.RUNNING -> "AI陪跑中"
+        integratedRunState.aiConnectionState == AIConnectionState.CONNECTED -> "AI已连接"
+        integratedRunState.aiConnectionState == AIConnectionState.CONNECTING -> "连接中..."
+        integratedRunState.aiConnectionState == AIConnectionState.ERROR -> "连接失败"
+        integratedRunState.aiConnectionState == AIConnectionState.DISCONNECTED && integratedRunState.runningState == RunningState.RUNNING -> "跑步中（AI已断开）"
+        integratedRunState.aiConnectionState == AIConnectionState.DISCONNECTED -> "AI陪跑未连接"
+        
+        else -> "AI陪跑未连接"
     }
 }
 
