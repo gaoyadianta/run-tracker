@@ -166,7 +166,25 @@ private fun RunInfo(
             )
             Spacer(modifier = Modifier.size(8.dp))
             Text(
-                text = "${run.avgSpeedInKMH} km/hr",
+                text = "${String.format("%.1f", run.avgSpeedInKMH)} km/hr",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Normal
+                ),
+            )
+        }
+        Spacer(modifier = Modifier.size(8.dp))
+        Row {
+            Text(
+                text = "${run.totalSteps} steps",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Normal
+                ),
+            )
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(
+                text = "${String.format("%.1f", run.avgStepsPerMinute)} spm",
                 style = MaterialTheme.typography.labelSmall.copy(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Normal

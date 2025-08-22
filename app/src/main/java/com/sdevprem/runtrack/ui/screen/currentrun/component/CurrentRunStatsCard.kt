@@ -76,45 +76,81 @@ fun CurrentRunStatsCard(
 private fun RunningStats(
     runState: CurrentRunStateWithCalories
 ) {
-    Row(
-        horizontalArrangement = Arrangement.SpaceAround,
+    Column(
         modifier = Modifier
             .padding(horizontal = 20.dp)
             .padding(bottom = 20.dp)
-            .height(IntrinsicSize.Min)
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-
     ) {
-        RunningStatsItem(
-            modifier = Modifier,
-            painter = painterResource(id = R.drawable.running_boy),
-            unit = "km",
-            value = (runState.currentRunState.distanceInMeters / 1000f).toString()
-        )
-        VerticalDivider(
-            thickness = 1.dp,
+        // 第一行：距离、卡路里、配速
+        Row(
+            horizontalArrangement = Arrangement.SpaceAround,
             modifier = Modifier
-                .padding(vertical = 8.dp)
-        )
-        RunningStatsItem(
-            modifier = Modifier,
-            painter = painterResource(id = R.drawable.fire),
-            unit = "kcal",
-            value = runState.caloriesBurnt.toString()
-        )
+                .height(IntrinsicSize.Min)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            RunningStatsItem(
+                modifier = Modifier,
+                painter = painterResource(id = R.drawable.running_boy),
+                unit = "km",
+                value = String.format("%.2f", runState.currentRunState.distanceInMeters / 1000f)
+            )
+            VerticalDivider(
+                thickness = 1.dp,
+                modifier = Modifier
+                    .padding(vertical = 8.dp)
+            )
+            RunningStatsItem(
+                modifier = Modifier,
+                painter = painterResource(id = R.drawable.fire),
+                unit = "kcal",
+                value = runState.caloriesBurnt.toString()
+            )
 
-        VerticalDivider(
-            thickness = 1.dp,
+            VerticalDivider(
+                thickness = 1.dp,
+                modifier = Modifier
+                    .padding(vertical = 8.dp)
+            )
+            RunningStatsItem(
+                modifier = Modifier,
+                painter = painterResource(id = R.drawable.bolt),
+                unit = "km/hr",
+                value = String.format("%.1f", runState.currentRunState.speedInKMH)
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        // 第二行：步数、步频
+        Row(
+            horizontalArrangement = Arrangement.SpaceEvenly,
             modifier = Modifier
-                .padding(vertical = 8.dp)
-        )
-        RunningStatsItem(
-            modifier = Modifier,
-            painter = painterResource(id = R.drawable.bolt),
-            unit = "km/hr",
-            value = runState.currentRunState.speedInKMH.toString()
-        )
+                .height(IntrinsicSize.Min)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp)
+        ) {
+            RunningStatsItem(
+                modifier = Modifier,
+                painter = painterResource(id = R.drawable.ic_raising_hand),
+                unit = "steps",
+                value = runState.currentRunState.totalSteps.toString()
+            )
+            VerticalDivider(
+                thickness = 1.dp,
+                modifier = Modifier
+                    .padding(vertical = 8.dp)
+            )
+            RunningStatsItem(
+                modifier = Modifier,
+                painter = painterResource(id = R.drawable.stopwatch),
+                unit = "spm",
+                value = String.format("%.1f", runState.currentRunState.stepsPerMinute)
+            )
+            // 添加一个空白区域保持对称
+            Spacer(modifier = Modifier.weight(1f))
+        }
     }
 }
 

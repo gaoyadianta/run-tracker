@@ -15,9 +15,11 @@ import com.sdevprem.runtrack.data.db.RunTrackDB
 import com.sdevprem.runtrack.data.db.RunTrackDB.Companion.RUN_TRACK_DB_NAME
 import com.sdevprem.runtrack.data.tracking.location.DefaultLocationTrackingManager
 import com.sdevprem.runtrack.data.tracking.location.LocationUtils
+import com.sdevprem.runtrack.data.tracking.step.DefaultStepTrackingManager
 import com.sdevprem.runtrack.data.tracking.timer.DefaultTimeTracker
 import com.sdevprem.runtrack.domain.tracking.background.BackgroundTrackingManager
 import com.sdevprem.runtrack.domain.tracking.location.LocationTrackingManager
+import com.sdevprem.runtrack.domain.tracking.step.StepTrackingManager
 import com.sdevprem.runtrack.domain.tracking.timer.TimeTracker
 import dagger.Binds
 import dagger.Module
@@ -54,7 +56,8 @@ abstract class AppModule {
             context,
             RunTrackDB::class.java,
             RUN_TRACK_DB_NAME
-        ).build()
+        ).addMigrations(RunTrackDB.MIGRATION_1_2)
+         .build()
 
         @Singleton
         @Provides
@@ -103,5 +106,10 @@ abstract class AppModule {
         timeTracker: DefaultTimeTracker
     ): TimeTracker
 
+    @Binds
+    @Singleton
+    abstract fun provideStepTrackingManager(
+        stepTrackingManager: DefaultStepTrackingManager
+    ): StepTrackingManager
 
 }

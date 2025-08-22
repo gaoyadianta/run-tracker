@@ -6,6 +6,8 @@ import com.sdevprem.runtrack.domain.tracking.location.LocationTrackingManager
 import com.sdevprem.runtrack.domain.tracking.model.CurrentRunState
 import com.sdevprem.runtrack.domain.tracking.model.LocationTrackingInfo
 import com.sdevprem.runtrack.domain.tracking.model.PathPoint
+import com.sdevprem.runtrack.domain.tracking.model.StepTrackingInfo
+import com.sdevprem.runtrack.domain.tracking.step.StepTrackingManager
 import com.sdevprem.runtrack.domain.tracking.timer.TimeTracker
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +21,8 @@ import javax.inject.Singleton
 class TrackingManager @Inject constructor(
     private val locationTrackingManager: LocationTrackingManager,
     private val timeTracker: TimeTracker,
-    private val backgroundTrackingManager: BackgroundTrackingManager
+    private val backgroundTrackingManager: BackgroundTrackingManager,
+    private val stepTrackingManager: StepTrackingManager
 ) {
     private var isTracking = false
         set(value) {
@@ -37,6 +40,17 @@ class TrackingManager @Inject constructor(
 
     private val timeTrackerCallback = { timeElapsed: Long ->
         _trackingDurationInMs.update { timeElapsed }
+    }
+
+    private val stepCallback = object : StepTrackingManager.StepCallback {
+        override fun onStepUpdate(stepInfo: StepTrackingInfo) {
+            _currentRunState.update { state ->
+                state.copy(
+                    totalSteps = stepInfo.totalSteps,
+                    stepsPerMinute = stepInfo.stepsPerMinute
+                )
+            }
+        }
     }
 
     private var isFirst = true
@@ -118,6 +132,7 @@ class TrackingManager @Inject constructor(
         if (isFirst) {
             postInitialValue()
             backgroundTrackingManager.startBackgroundTracking()
+            stepTrackingManager.startStepTracking(stepCallback)
             isFirst = false
         }
         isLocationAcquisitionActive = false
@@ -145,6 +160,8 @@ class TrackingManager @Inject constructor(
         pauseTracking()
         isLocationAcquisitionActive = false
         backgroundTrackingManager.stopBackgroundTracking()
+        stepTrackingManager.stopStepTracking()
+        stepTrackingManager.resetStepTracking()
         timeTracker.stopTimer()
         postInitialValue()
         isFirst = true

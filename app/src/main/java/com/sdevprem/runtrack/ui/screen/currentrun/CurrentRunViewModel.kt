@@ -205,6 +205,16 @@ class CurrentRunViewModel @Inject constructor(
     }
     
     private fun saveRunAndFinish(bitmap: Bitmap) {
+        val runState = currentRunStateWithCalories.value
+        val duration = runningDurationInMillis.value
+        
+        // 计算平均步频：如果跑步时间大于0，则计算平均值，否则使用当前值
+        val avgStepsPerMinute = if (duration > 0 && runState.currentRunState.totalSteps > 0) {
+            (runState.currentRunState.totalSteps.toFloat() / (duration / 60000f))
+        } else {
+            runState.currentRunState.stepsPerMinute
+        }
+        
         saveRun(
             Run(
                 img = bitmap,
@@ -216,7 +226,9 @@ class CurrentRunViewModel @Inject constructor(
                 distanceInMeters = currentRunStateWithCalories.value.currentRunState.distanceInMeters,
                 durationInMillis = runningDurationInMillis.value,
                 timestamp = Date(),
-                caloriesBurned = currentRunStateWithCalories.value.caloriesBurnt
+                caloriesBurned = currentRunStateWithCalories.value.caloriesBurnt,
+                totalSteps = runState.currentRunState.totalSteps,
+                avgStepsPerMinute = avgStepsPerMinute
             )
         )
         
