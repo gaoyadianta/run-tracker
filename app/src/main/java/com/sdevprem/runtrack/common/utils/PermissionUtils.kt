@@ -34,10 +34,17 @@ object PermissionUtils {
         Manifest.permission.MODIFY_AUDIO_SETTINGS
     )
 
+    val activityRecognitionPermissions = mutableListOf<String>().apply {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            add(Manifest.permission.ACTIVITY_RECOGNITION)
+        }
+    }.toTypedArray()
+
     val allPermissions = mutableListOf<String>().apply {
         addAll(locationPermissions)
         addAll(bluetoothPermissions)
         addAll(audioPermissions)
+        addAll(activityRecognitionPermissions)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(notificationPermission)
         }

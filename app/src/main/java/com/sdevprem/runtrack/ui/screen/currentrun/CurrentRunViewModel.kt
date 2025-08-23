@@ -274,6 +274,20 @@ class CurrentRunViewModel @Inject constructor(
         aiCompanionManager.disconnect()
     }
     
+    // 调试方法 - 用于检查步数追踪状态
+    fun debugStepTracking() {
+        Timber.d("=== 步数追踪调试信息 ===")
+        val currentState = currentRunStateWithCalories.value.currentRunState
+        Timber.d("当前步数: ${currentState.totalSteps}")
+        Timber.d("当前步频: ${currentState.stepsPerMinute}")
+        Timber.d("跑步状态: ${currentState.isTracking}")
+        Timber.d("距离: ${currentState.distanceInMeters}m")
+        Timber.d("速度: ${currentState.speedInKMH} km/h")
+        
+        // 可以在这里手动设置一些测试数据
+        // TODO: 如果需要的话，可以通过TrackingManager直接获取步数传感器状态
+    }
+    
     
     private fun handleRunningStateChange(runState: CurrentRunStateWithCalories, duration: Long) {
         if (!runState.currentRunState.isTracking) return

@@ -35,6 +35,7 @@ import com.sdevprem.runtrack.common.utils.DateTimeUtils
 import com.sdevprem.runtrack.domain.model.CurrentRunStateWithCalories
 import com.sdevprem.runtrack.domain.tracking.model.CurrentRunState
 import com.sdevprem.runtrack.ui.common.compose.component.RunningStatsItem
+import com.sdevprem.runtrack.common.utils.RunUtils
 import java.math.RoundingMode
 
 @Composable
@@ -116,8 +117,8 @@ private fun RunningStats(
             RunningStatsItem(
                 modifier = Modifier,
                 painter = painterResource(id = R.drawable.bolt),
-                unit = "km/hr",
-                value = String.format("%.1f", runState.currentRunState.speedInKMH)
+                unit = "min/km",
+                value = RunUtils.formatPace(RunUtils.convertSpeedToPace(runState.currentRunState.speedInKMH))
             )
         }
         
@@ -150,6 +151,16 @@ private fun RunningStats(
             )
             // 添加一个空白区域保持对称
             Spacer(modifier = Modifier.weight(1f))
+        }
+        
+        // 调试信息 - 临时添加用于调试步数追踪问题
+        if (runState.currentRunState.totalSteps == 0 && runState.currentRunState.isTracking) {
+            Text(
+                text = "调试: 步数追踪状态为0 - 检查权限和传感器可用性",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 8.dp)
+            )
         }
     }
 }

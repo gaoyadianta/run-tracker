@@ -44,6 +44,7 @@ class TrackingManager @Inject constructor(
 
     private val stepCallback = object : StepTrackingManager.StepCallback {
         override fun onStepUpdate(stepInfo: StepTrackingInfo) {
+            Timber.d("收到步数更新: totalSteps=${stepInfo.totalSteps}, stepsPerMinute=${stepInfo.stepsPerMinute}")
             _currentRunState.update { state ->
                 state.copy(
                     totalSteps = stepInfo.totalSteps,
@@ -132,9 +133,13 @@ class TrackingManager @Inject constructor(
         if (isFirst) {
             postInitialValue()
             backgroundTrackingManager.startBackgroundTracking()
-            stepTrackingManager.startStepTracking(stepCallback)
             isFirst = false
         }
+        // 每次开始跑步都启动步数追踪
+        Timber.d("开始启动步数追踪...")
+        stepTrackingManager.startStepTracking(stepCallback)
+        Timber.d("步数追踪启动完成")
+        
         isLocationAcquisitionActive = false
         isTracking = true
         timeTracker.startResumeTimer(timeTrackerCallback)
