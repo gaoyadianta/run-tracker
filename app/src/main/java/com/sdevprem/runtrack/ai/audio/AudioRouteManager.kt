@@ -173,33 +173,63 @@ class AudioRouteManager @Inject constructor(
     fun setupForAICall() {
         try {
             Timber.d("为AI通话配置音频路由")
-            
+
             // 记录配置前的状态
             val beforeMode = audioManager.mode
             val beforeSpeakerOn = audioManager.isSpeakerphoneOn
             val beforeScoOn = audioManager.isBluetoothScoOn
             val beforeScoAvailable = audioManager.isBluetoothScoAvailableOffCall
-            
+
             Timber.d("配置前音频状态: mode=$beforeMode, speakerOn=$beforeSpeakerOn, scoOn=$beforeScoOn, scoAvailable=$beforeScoAvailable")
-            
+
             // 设置音频模式为通信模式
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
             Timber.d("音频模式已设置为通信模式: ${AudioManager.MODE_IN_COMMUNICATION}")
-            
+
+            // Initialize Bluetooth SCO if needed
+            initializeScoConnection()
+
             // 选择最优音频设备
             selectOptimalAudioDevice()
-            
+
             // 记录配置后的状态
             val afterMode = audioManager.mode
             val afterSpeakerOn = audioManager.isSpeakerphoneOn
             val afterScoOn = audioManager.isBluetoothScoOn
             val afterScoAvailable = audioManager.isBluetoothScoAvailableOffCall
-            
+
             Timber.d("配置后音频状态: mode=$afterMode, speakerOn=$afterSpeakerOn, scoOn=$afterScoOn, scoAvailable=$afterScoAvailable")
             Timber.d("当前选择的音频设备: ${_currentAudioDevice.value.displayName}")
-            
+
         } catch (e: Exception) {
             Timber.e(e, "配置AI通话音频路由失败")
+        }
+    }
+
+    /**
+     * 初始化SCO连接
+     */
+    private fun initializeScoConnection() {
+        try {
+            // Check if we have a Bluetooth headset connected
+            if (bluetoothHeadset?.connectedDevices?.isNotEmpty() == true) {
+                Timber.d("检测到蓝牙耳机连接，准备初始化SCO连接")
+
+                // Stop any existing SCO connection first
+                if (audioManager.isBluetoothScoOn) {
+                    audioManager.stopBluetoothSco()
+                    Timber.d("停止现有SCO连接")
+                }
+
+                // Start SCO connection
+                audioManager.startBluetoothSco()
+                Timber.d("启动SCO连接")
+
+                // Wait for connection to establish
+                Thread.sleep(500)
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "初始化SCO连接失败")
         }
     }
 
@@ -254,8 +284,16 @@ class AudioRouteManager @Inject constructor(
                     // 启用蓝牙SCO
                     audioManager.isSpeakerphoneOn = false
                     audioManager.isBluetoothScoOn = true
+                    // Start Bluetooth SCO connection - this is asynchronous
                     audioManager.startBluetoothSco()
                     Timber.d("音频路由设置为蓝牙SCO - 已调用startBluetoothSco()")
+
+                    // Wait a bit for SCO to establish, but don't block too long
+                    try {
+                        Thread.sleep(200)
+                    } catch (e: InterruptedException) {
+                        Thread.currentThread().interrupt()
+                    }
                 }
                 AudioDeviceType.EARPIECE -> {
                     // 使用听筒
@@ -337,14 +375,15 @@ class AudioRouteManager @Inject constructor(
             val connectedDevicesCount = bluetoothHeadset?.connectedDevices?.size ?: 0
             val isScoAvailable = audioManager.isBluetoothScoAvailableOffCall
             val isScoOn = audioManager.isBluetoothScoOn
-            
+
             Timber.d("蓝牙耳机连接状态检查: hasConnectedDevices=$hasConnectedDevices, connectedDevicesCount=$connectedDevicesCount, isScoAvailable=$isScoAvailable, isScoOn=$isScoOn")
-            
+
             bluetoothHeadset?.connectedDevices?.forEach { device ->
                 Timber.d("已连接蓝牙设备: ${device.name} - ${device.address}")
             }
-            
-            hasConnectedDevices
+
+            // Check if SCO is both available and active
+            hasConnectedDevices && isScoOn
         } catch (e: Exception) {
             Timber.w(e, "检查蓝牙耳机连接状态失败")
             false
@@ -448,24 +487,28 @@ class AudioRouteManager @Inject constructor(
     fun cleanup() {
         try {
             Timber.d("清理音频路由管理器资源")
-            
+
+            // Stop Bluetooth SCO before restoring settings
+            audioManager.stopBluetoothSco()
+            audioManager.isBluetoothScoOn = false
+
             // 恢复原始设置
             restoreOriginalSettings()
-            
+
             // 注销监听器
             try {
                 context.unregisterReceiver(bluetoothReceiver)
             } catch (e: Exception) {
                 Timber.w(e, "注销蓝牙监听器失败")
             }
-            
+
             // 断开蓝牙服务
             bluetoothAdapter?.closeProfileProxy(BluetoothProfile.HEADSET, bluetoothHeadset)
             bluetoothHeadset = null
-            
+
             isInitialized = false
             Timber.d("音频路由管理器资源清理完成")
-            
+
         } catch (e: Exception) {
             Timber.e(e, "清理音频路由管理器资源失败")
         }

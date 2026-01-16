@@ -8,5 +8,6 @@
     <string name="coze_access_token">sat_eVjTTiWmn6vnUrc4f4R4PNAkbfkKSQgztbOg7MS1xqL4z0HPidRI9BqyiErlTI0r</string>
     <string name="coze_base_url">https://api.coze.cn</string>
     <string name="coze_bot_id">7526888735221415975</string>
-    <string name="coze_voice_id">7426720361732931593</string>
+    <string name="coze_voice_id">7426725529589530651</string>
+<!--    <string name="coze_voice_id">7426720361732931593</string>-->
 </resources>
