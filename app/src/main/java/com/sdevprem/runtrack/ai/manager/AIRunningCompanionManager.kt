@@ -69,10 +69,10 @@ class AIRunningCompanionManager @Inject constructor(
     val summaryBroadcastState: StateFlow<SummaryBroadcastState> = _summaryBroadcastState.asStateFlow()
     
     // 播报控制
-    private var lastRegularBroadcastTime = 0L  // 上次常规广播时间
+    private var lastRegularBroadcastTime = 0L  // 上次常规广播时间（常规/互动类播报）
     private var lastSpecialBroadcastTime = 0L  // 上次特殊广播时间（里程碑、配速提醒等）
-    private var broadcastInterval = 120000L // 2分钟间隔
-    private var specialBroadcastInterval = 30000L // 特殊广播间隔30秒，避免过于频繁
+    private var broadcastInterval = 120000L // 常规播报间隔：2分钟
+    private var specialBroadcastInterval = 30000L // 特殊广播间隔：30秒，避免过于频繁
     private var isProcessingSummary = false // 标记是否正在处理总结播报
     
     /**
@@ -236,7 +236,9 @@ class AIRunningCompanionManager @Inject constructor(
         val currentTime = System.currentTimeMillis()
         val shouldSend = when (type) {
             AIBroadcastType.RUN_SUMMARY -> {
-                // 总结播报不受时间间隔限制
+                // 总结播报不受时间间隔限制，但完成一次总结后
+                // 也视为一次深度交互，重置常规播报计时
+                lastRegularBroadcastTime = currentTime
                 true
             }
             AIBroadcastType.MILESTONE_CELEBRATION,
@@ -244,6 +246,8 @@ class AIRunningCompanionManager @Inject constructor(
                 // 里程碑和配速提醒使用特殊间隔
                 if (currentTime - lastSpecialBroadcastTime >= specialBroadcastInterval) {
                     lastSpecialBroadcastTime = currentTime
+                    // 标志性事件触发后，重置常规播报计时
+                    lastRegularBroadcastTime = currentTime
                     true
                 } else {
                     false
@@ -460,13 +464,16 @@ class AIRunningCompanionManager @Inject constructor(
             val messageStr = mapper.writeValueAsString(configData)
             Timber.d("发送房间配置更新消息: $messageStr")
 
+            // 按文档要求，将配置更新事件发送给房间内的智能体（bot_id）
+            val targetUserId = cozeConfig.botID
+
             val result = rtcRoom?.sendUserMessage(
-                roomInfo?.uid,
+                targetUserId,
                 messageStr,
                 MessageConfig.RELIABLE_ORDERED
             )
 
-            Timber.d("房间配置更新消息发送结果: $result")
+            Timber.d("房间配置更新消息发送结果: $result, targetUserId=$targetUserId")
         } catch (e: Exception) {
             Timber.e(e, "更新房间配置失败")
         }
@@ -611,6 +618,10 @@ class AIRunningCompanionManager @Inject constructor(
                             Timber.d("检测到跑步总结播报完成")
                             onSummaryBroadcastCompleted()
                         }
+
+                        // 任意一次完整对话/播报完成后，重置常规播报计时，
+                        // 避免在短时间内再次触发自动常规播报
+                        lastRegularBroadcastTime = System.currentTimeMillis()
                     }
                     // 添加对智能体语音事件的处理
                     "audio.agent.speech_started" -> {
@@ -739,31 +750,40 @@ class AIRunningCompanionManager @Inject constructor(
     private fun sendMessageToAI(prompt: String) {
         try {
             Timber.d("发送消息到AI: $prompt")
-            // 使用conversation.message.create事件发送用户消息，触发AI回复
-            val data = mapOf(
-                "id" to "broadcast_${System.currentTimeMillis()}",
-                "event_type" to "conversation.message.create",  // 创建对话消息
-                "data" to mapper.writeValueAsString(
-                    mapOf(
-                        "role" to "user",        // 表示是用户发送的消息
-                        "content_type" to "text", // 内容类型
-                        "content" to prompt      // 实际消息内容
-                    )
-                )
+
+            // 根据 Coze Realtime 文档构造 conversation.message.create 事件：
+            // data 字段必须是一个对象，而不是 JSON 字符串
+            val messageData = mapOf(
+                "role" to "user",          // 表示是用户发送的消息
+                "content_type" to "text",  // 纯文本内容
+                "content" to prompt         // 实际消息内容
             )
 
-            val messageStr = mapper.writeValueAsString(data)
+            val payload = mapOf(
+                "id" to "broadcast_${System.currentTimeMillis()}",
+                "event_type" to "conversation.message.create",  // 创建对话消息
+                "data" to messageData
+            )
+
+            val messageStr = mapper.writeValueAsString(payload)
             Timber.d("发送的消息内容: $messageStr")
 
+            // 根据 Coze 文档，目标 user_id 应该是创建房间时传入的 bot_id
+            val targetUserId = cozeConfig.botID
+
             val result = rtcRoom?.sendUserMessage(
-                roomInfo?.uid,
+                targetUserId,
                 messageStr,
                 MessageConfig.RELIABLE_ORDERED
             )
 
-            Timber.d("发送消息结果: $result")
+            Timber.d("发送消息结果: $result, targetUserId=$targetUserId")
 
-            // 清空上一条消息
+            if (result != null && result != 0L) {
+                Timber.w("发送消息到AI失败，返回码: $result, 请检查user_id是否正确以及房间状态是否正常")
+            }
+
+            // 清空上一条消息（用于 UI 展示）
             _lastMessage.value = ""
 
         } catch (e: Exception) {

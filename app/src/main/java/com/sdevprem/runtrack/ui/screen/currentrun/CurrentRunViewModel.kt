@@ -80,9 +80,6 @@ class CurrentRunViewModel @Inject constructor(
         // 初始化AI陪跑管理器
         aiCompanionManager.initialize()
 
-        // 设置调试模式下的AI广播间隔为10秒
-        aiCompanionManager.setDebugBroadcastInterval(10)
-
         // 监听AI连接状态变化，同步到集成状态
         viewModelScope.launch {
             aiConnectionState.collect { aiState ->
@@ -300,6 +297,7 @@ class CurrentRunViewModel @Inject constructor(
     private fun handleRunningStateChange(runState: CurrentRunStateWithCalories, duration: Long) {
         if (!runState.currentRunState.isTracking) return
 
+        val currentTime = System.currentTimeMillis()
         val currentDistance = runState.currentRunState.distanceInMeters / 1000f
         val currentPace = runState.currentRunState.speedInKMH
 
@@ -308,6 +306,8 @@ class CurrentRunViewModel @Inject constructor(
             val runningContext = createRunningContext(runState, duration)
             aiCompanionManager.triggerBroadcast(runningContext, AIBroadcastType.MILESTONE_CELEBRATION)
             lastBroadcastDistance = currentDistance
+            // 标志性事件触发后，重置常规广播计时
+            lastRegularBroadcastTime = currentTime
         }
 
         // 配速变化播报
@@ -316,15 +316,15 @@ class CurrentRunViewModel @Inject constructor(
             if (paceChange > 2f) { // 配速变化超过2km/h
                 val runningContext = createRunningContext(runState, duration)
                 aiCompanionManager.triggerBroadcast(runningContext, AIBroadcastType.PACE_REMINDER)
+                // 配速变化触发播报后，同样重置常规广播计时
+                lastRegularBroadcastTime = currentTime
             }
         }
 
         previousPace = currentPace
 
-        // 定时常规广播 - 每10秒一次（调试用，后续可改回2分钟）
-        val currentTime = System.currentTimeMillis()
-        val debugBroadcastInterval = 10000L // 10秒，调试用
-        if (currentTime - lastRegularBroadcastTime >= debugBroadcastInterval) {
+        // 定时常规广播 - 每2分钟一次
+        if (currentTime - lastRegularBroadcastTime >= regularBroadcastInterval) {
             Timber.d("触发自动AI广播，上次广播时间: $lastRegularBroadcastTime, 当前时间: $currentTime, 间隔: ${currentTime - lastRegularBroadcastTime}ms")
             val runningContext = createRunningContext(runState, duration)
             aiCompanionManager.triggerBroadcast(runningContext, AIBroadcastType.PROFESSIONAL_ADVICE)
