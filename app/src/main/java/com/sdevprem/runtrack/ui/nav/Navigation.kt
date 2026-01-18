@@ -9,6 +9,7 @@ import com.sdevprem.runtrack.ui.screen.currentrun.CurrentRunScreen
 import com.sdevprem.runtrack.ui.screen.onboard.OnBoardScreen
 import com.sdevprem.runtrack.ui.screen.profile.ProfileScreen
 import com.sdevprem.runtrack.ui.screen.runstats.RunStatsScreen
+import com.sdevprem.runtrack.ui.screen.settings.SettingsScreen
 
 @Composable
 fun Navigation(
@@ -51,6 +52,12 @@ private fun SetupNavGraph(
         composable(route = Destination.RunStats.route) {
             RunStatsScreen(
                 navigateUp = { navController.navigateUp() }
+            )
+        }
+
+        composable(route = Destination.Settings.route) {
+            SettingsScreen(
+                navController = navController
             )
         }
     }

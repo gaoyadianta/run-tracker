@@ -73,11 +73,16 @@ class CurrentRunViewModel @Inject constructor(
     
     private var lastBroadcastDistance = 0f
     private var previousPace = 0f
+    private var lastRegularBroadcastTime = 0L  // 上次常规广播时间
+    private val regularBroadcastInterval = 120000L // 2分钟间隔
     
     init {
         // 初始化AI陪跑管理器
         aiCompanionManager.initialize()
-        
+
+        // 设置调试模式下的AI广播间隔为10秒
+        aiCompanionManager.setDebugBroadcastInterval(10)
+
         // 监听AI连接状态变化，同步到集成状态
         viewModelScope.launch {
             aiConnectionState.collect { aiState ->
@@ -86,7 +91,7 @@ class CurrentRunViewModel @Inject constructor(
                 )
             }
         }
-        
+
         // 监听跑步状态变化，触发AI播报
         viewModelScope.launch {
             combine(
@@ -237,9 +242,12 @@ class CurrentRunViewModel @Inject constructor(
             runningState = RunningState.STOPPED,
             isGeneratingSummary = false
         )
-        
+
+        // 重置常规广播计时器
+        lastRegularBroadcastTime = 0L
+
         trackingManager.stop()
-        
+
         // AI连接的断开由AIRunningCompanionManager自动处理
     }
     
@@ -291,17 +299,17 @@ class CurrentRunViewModel @Inject constructor(
     
     private fun handleRunningStateChange(runState: CurrentRunStateWithCalories, duration: Long) {
         if (!runState.currentRunState.isTracking) return
-        
+
         val currentDistance = runState.currentRunState.distanceInMeters / 1000f
         val currentPace = runState.currentRunState.speedInKMH
-        
+
         // 每公里播报
         if (currentDistance > 0 && currentDistance - lastBroadcastDistance >= 1f) {
             val runningContext = createRunningContext(runState, duration)
             aiCompanionManager.triggerBroadcast(runningContext, AIBroadcastType.MILESTONE_CELEBRATION)
             lastBroadcastDistance = currentDistance
         }
-        
+
         // 配速变化播报
         if (previousPace > 0) {
             val paceChange = kotlin.math.abs(currentPace - previousPace)
@@ -310,12 +318,18 @@ class CurrentRunViewModel @Inject constructor(
                 aiCompanionManager.triggerBroadcast(runningContext, AIBroadcastType.PACE_REMINDER)
             }
         }
-        
+
         previousPace = currentPace
-        
-        // 定时鼓励播报
-        val runningContext = createRunningContext(runState, duration)
-        aiCompanionManager.triggerBroadcast(runningContext)
+
+        // 定时常规广播 - 每10秒一次（调试用，后续可改回2分钟）
+        val currentTime = System.currentTimeMillis()
+        val debugBroadcastInterval = 10000L // 10秒，调试用
+        if (currentTime - lastRegularBroadcastTime >= debugBroadcastInterval) {
+            Timber.d("触发自动AI广播，上次广播时间: $lastRegularBroadcastTime, 当前时间: $currentTime, 间隔: ${currentTime - lastRegularBroadcastTime}ms")
+            val runningContext = createRunningContext(runState, duration)
+            aiCompanionManager.triggerBroadcast(runningContext, AIBroadcastType.PROFESSIONAL_ADVICE)
+            lastRegularBroadcastTime = currentTime
+        }
     }
     
     private fun createRunningContext(
@@ -340,6 +354,8 @@ class CurrentRunViewModel @Inject constructor(
     
     override fun onCleared() {
         super.onCleared()
+        // 在清除时重置AI广播间隔为默认值（2分钟）
+        aiCompanionManager.setBroadcastInterval(2)
         aiCompanionManager.disconnect()
     }
 }

@@ -27,10 +27,16 @@ sealed class Destination(val route: String) {
 
     data object RunStats : Destination("run_stats")
 
+    data object Settings : Destination("settings")
+
     //global navigation
     companion object {
         fun navigateToCurrentRunScreen(navController: NavController) {
             navController.navigate(CurrentRun.route)
+        }
+
+        fun navigateToSettingsScreen(navController: NavController) {
+            navController.navigate(Settings.route)
         }
     }
 

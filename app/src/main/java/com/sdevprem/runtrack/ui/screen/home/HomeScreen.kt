@@ -92,6 +92,9 @@ fun HomeScreen(
             },
             navigateToRunStats = {
                 BottomNavDestination.Home.navigateToRunStats(navController)
+            },
+            navigateToSettings = {
+                Destination.navigateToSettingsScreen(navController)
             }
         )
 
@@ -112,6 +115,7 @@ fun HomeScreenContent(
     navigateToRunScreen: () -> Unit,
     navigateToRunningHistoryScreen: () -> Unit,
     navigateToRunStats: () -> Unit,
+    navigateToSettings: () -> Unit = {},
 ) {
     Column {
         TopBar(
@@ -119,8 +123,9 @@ fun HomeScreenContent(
                 .zIndex(1f),
             user = state.user,
             weeklyGoalInKm = state.user.weeklyGoalInKM,
-            distanceCoveredInCurrentWeekInKm = state.distanceCoveredInKmInThisWeek,
-            onWeeklyGoalClick = navigateToRunStats
+            onWeeklyGoalClick = navigateToRunStats,
+            onSettingsClick = navigateToSettings,
+            distanceCoveredInCurrentWeekInKm = state.distanceCoveredInKmInThisWeek
         )
         if (durationInMillis > 0)
             CurrentRunningCard(
@@ -356,6 +361,7 @@ private fun TopBar(
     user: User = User(),
     weeklyGoalInKm: Float = 0f,
     onWeeklyGoalClick: () -> Unit,
+    onSettingsClick: () -> Unit = {},
     distanceCoveredInCurrentWeekInKm: Float = 0f
 ) {
     Box(
@@ -375,7 +381,8 @@ private fun TopBar(
             Spacer(modifier = Modifier.size(24.dp))
             TopBarProfile(
                 modifier = Modifier.background(color = Color.Transparent),
-                user = user
+                user = user,
+                onSettingsClick = onSettingsClick
             )
             Spacer(modifier = Modifier.size(32.dp))
             WeeklyGoalCard(
@@ -391,7 +398,8 @@ private fun TopBar(
 @Composable
 private fun TopBarProfile(
     modifier: Modifier = Modifier,
-    user: User
+    user: User,
+    onSettingsClick: () -> Unit = {}
 ) {
     Row(
         modifier = modifier
@@ -424,7 +432,7 @@ private fun TopBarProfile(
         )
 
         IconButton(
-            onClick = {},
+            onClick = onSettingsClick,
             modifier = Modifier
                 .size(24.dp)
         ) {
@@ -515,7 +523,7 @@ private fun WeeklyGoalCard(
                 modifier = Modifier.size(8.dp)
             )
             LinearProgressIndicator(
-                progress = if (weeklyGoalInKm > 0) weeklyGoalDoneInKm / weeklyGoalInKm else 0f,
+                progress = { if (weeklyGoalInKm > 0) weeklyGoalDoneInKm / weeklyGoalInKm else 0f },
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 strokeCap = StrokeCap.Round,

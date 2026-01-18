@@ -182,7 +182,7 @@ private fun DateRangeCard(
         Calendar.getInstance().setMinimumTime().time
     }
     val canIncrementDate = remember(dateList, todayDate) {
-        dateList.last() < todayDate
+        dateList.isNotEmpty() && dateList.last() < todayDate
     }
     ElevatedCard(
         modifier = Modifier

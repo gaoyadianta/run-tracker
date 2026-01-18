@@ -1,0 +1,200 @@
+Realtime 下行事件
+本文介绍扣子编程智能语音信令事件中的下行事件。​
+房间配置成功​
+事件类型：session.created​
+事件说明：用户成功进房后会发送此事件。​
+事件结构：​
+​
+事件示例：​
+​
+房间配置更新成功​
+事件类型：session.updated​
+事件说明：房间内的配置更新成功，返回房间内最新的配置。​
+事件结构：​
+​
+事件示例：​
+​
+会话创建成功​
+事件类型：conversation.created​
+事件说明：用户成功进房后会发送此事件，收到此事件即表明房间初始化完成。​
+事件结构：​
+​
+事件示例：​
+​
+对话开始​
+事件类型：conversation.chat.created​
+事件说明：创建对话的事件，表示对话开始。​
+事件结构：​
+​
+事件示例：​
+​
+对话处理中​
+事件类型：conversation.chat.in_progress​
+事件说明：服务端正在处理对话。​
+事件结构：​
+​
+事件示例：​
+​
+增量消息​
+事件类型：conversation.message.delta​
+事件说明：增量消息，通常是 type=answer 时的增量消息。​
+事件结构：​
+​
+事件示例：​
+​
+消息已完成​
+事件类型：conversation.message.completed​
+事件说明：消息已完成（用户或智能体）。此时事件中带有所有 message.delta 的拼接结果，且每个消息均为 completed 状态。​
+事件结构：​
+​
+事件示例：​
+​
+对话完成​
+事件类型：conversation.chat.completed​
+事件说明：表示对话已完成。​
+事件结构：​
+​
+事件示例：​
+​
+端插件请求​
+事件类型：conversation.chat.requires_action​
+事件说明：对话中断，需要使用方上报工具的执行结果。​
+事件结构：​
+​
+事件示例：​
+​
+对话失败​
+事件类型：conversation.chat.failed​
+事件说明：此事件用于标识对话失败。​
+事件结构：​
+​
+事件示例：​
+​
+用户开始说话​
+事件类型：audio.user.speech_started​
+事件说明：此事件表示服务端识别到用户正在说话。​
+事件结构：​
+​
+事件示例：​
+​
+用户结束说话​
+事件类型：audio.user.speech_stopped​
+事件说明：此事件表示服务端识别到用户已停止说话。​
+事件结构：​
+​
+事件示例：​
+​
+智能体开始说话​
+事件类型：audio.agent.speech_started​
+事件说明：此事件表示智能体正在说话。​
+事件结构：​
+​
+事件示例：​
+​
+智能体结束说话 ​
+事件类型：audio.agent.speech_stopped​
+事件说明：此事件表示智能体已停止说话。​
+事件结构：​
+​
+事件示例：​
+​
+安抚配置更新成功 ​
+事件类型：session.pre_answer.updated​
+事件说明：房间内的安抚配置更新成功，返回房间内最新的安抚配置。​
+事件结构：​
+​
+事件示例：​
+​
+安抚已生成 ​
+事件类型：conversation.chat.pre_answer​
+事件说明：此事件表明触发了安抚策略。​
+事件结构：​
+​
+事件示例：​
+​
+用户语音识别字幕​
+事件类型：conversation.audio_transcript.delta​
+事件说明：用户语音识别的中间值，每次返回都是全量文本。​
+事件结构：​
+​
+事件示例：​
+​
+更新房间模式成功​
+事件类型：mode.updated​
+事件说明：房间模式更新成功，返回最新的房间模式设置。​
+事件结构：​
+​
+事件示例：​
+​
+用户开始说话​
+事件类型：input_audio_buffer.started​
+事件说明：表示服务端成功处理用户开始说话事件。​
+事件结构：​
+​
+事件示例：​
+​
+用户结束说话​
+事件类型：input_audio_buffer.completed​
+事件说明：表示服务端成功处理用户结束说话事件。​
+事件结构：​
+​
+事件示例：​
+​
+{​
+    "id": "7446668538246561827",​
+    "event_type": "input_audio_buffer.completed",​
+    "data": {}​
+}​
+​
+​
+发生错误​
+事件类型：error​
+事件说明：对话过程中的错误事件。​
+事件结构：​
+​
+参数​
+类型​
+是否必选​
+说明​
+id​
+String​
+必选​
+服务端生成的唯一 ID。​
+event_type​
+String​
+必选​
+固定为error。​
+data​
+Object​
+必选​
+事件数据，包含错误的详细信息。​
+data.code​
+Integer​
+必选​
+错误码。错误码列表请参见​Realtime 事件错误码。​
+data.msg​
+String​
+必选​
+错误信息。​
+data.detail​
+Object​
+必选​
+错误的详细信息。​
+data.detail.logid​
+String​
+必选​
+服务端日志 ID。​
+​
+事件示例：​
+​
+{​
+  "id": "event_1",​
+  "event_type": "error",​
+  "data": {​
+      "code": 1,​
+      "msg": "发生异常",​
+      "detail": {​
+          "logid": ""​
+      }​
+  }​
+}​

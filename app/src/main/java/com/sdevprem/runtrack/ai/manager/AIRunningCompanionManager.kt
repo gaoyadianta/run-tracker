@@ -69,8 +69,10 @@ class AIRunningCompanionManager @Inject constructor(
     val summaryBroadcastState: StateFlow<SummaryBroadcastState> = _summaryBroadcastState.asStateFlow()
     
     // 播报控制
-    private var lastBroadcastTime = 0L
+    private var lastRegularBroadcastTime = 0L  // 上次常规广播时间
+    private var lastSpecialBroadcastTime = 0L  // 上次特殊广播时间（里程碑、配速提醒等）
     private var broadcastInterval = 120000L // 2分钟间隔
+    private var specialBroadcastInterval = 30000L // 特殊广播间隔30秒，避免过于频繁
     private var isProcessingSummary = false // 标记是否正在处理总结播报
     
     /**
@@ -227,19 +229,44 @@ class AIRunningCompanionManager @Inject constructor(
         if (_connectionState.value != AIConnectionState.CONNECTED) {
             return
         }
-        
-        // 如果是总结播报，跳过时间间隔检查
-        if (broadcastType != AIBroadcastType.RUN_SUMMARY) {
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastBroadcastTime < broadcastInterval) {
-                return // 播报间隔未到
-            }
-            lastBroadcastTime = currentTime
-        }
-        
+
         val type = broadcastType ?: AIBroadcastType.getByContext(runningContext)
+
+        // 根据广播类型检查时间间隔
+        val currentTime = System.currentTimeMillis()
+        val shouldSend = when (type) {
+            AIBroadcastType.RUN_SUMMARY -> {
+                // 总结播报不受时间间隔限制
+                true
+            }
+            AIBroadcastType.MILESTONE_CELEBRATION,
+            AIBroadcastType.PACE_REMINDER -> {
+                // 里程碑和配速提醒使用特殊间隔
+                if (currentTime - lastSpecialBroadcastTime >= specialBroadcastInterval) {
+                    lastSpecialBroadcastTime = currentTime
+                    true
+                } else {
+                    false
+                }
+            }
+            else -> {
+                // 常规广播（鼓励、专业建议等）使用常规间隔
+                if (currentTime - lastRegularBroadcastTime >= broadcastInterval) {
+                    Timber.d("允许发送常规AI广播，上次广播时间: $lastRegularBroadcastTime, 当前时间: $currentTime, 类型: ${type.name}")
+                    lastRegularBroadcastTime = currentTime
+                    true
+                } else {
+                    Timber.d("拒绝发送AI广播，上次广播时间: $lastRegularBroadcastTime, 当前时间: $currentTime, 类型: ${type.name}, 间隔: ${currentTime - lastRegularBroadcastTime}ms")
+                    false
+                }
+            }
+        }
+
+        if (!shouldSend) {
+            return // 播报间隔未到
+        }
+
         val prompt = buildPrompt(type, runningContext)
-        
         sendMessageToAI(prompt)
     }
     
@@ -276,6 +303,14 @@ class AIRunningCompanionManager @Inject constructor(
      */
     fun setBroadcastInterval(intervalMinutes: Int) {
         broadcastInterval = intervalMinutes * 60000L
+    }
+
+    /**
+     * 设置调试模式下的播报间隔（以秒为单位）
+     */
+    fun setDebugBroadcastInterval(intervalSeconds: Int) {
+        broadcastInterval = intervalSeconds * 1000L
+        specialBroadcastInterval = intervalSeconds * 1000L
     }
     
     
@@ -396,13 +431,44 @@ class AIRunningCompanionManager @Inject constructor(
             
             _connectionState.value = AIConnectionState.CONNECTED
             Timber.d("RTC引擎设置完成，已连接到AI陪跑服务")
-            
+
+            // 更新房间配置，将最长沉默时间设置为30分钟（1800000毫秒）
+            updateRoomConfig()
+
         } catch (e: Exception) {
             Timber.e(e, "设置RTC引擎失败")
             _connectionState.value = AIConnectionState.ERROR
-            
+
             // 清理资源
             cleanupRTCResources()
+        }
+    }
+
+    /**
+     * 更新房间配置，设置最长沉默时间为30分钟
+     */
+    private fun updateRoomConfig() {
+        try {
+            val configData = mapOf(
+                "id" to "config_update_${System.currentTimeMillis()}",
+                "event_type" to "session.update",
+                "data" to mapOf(
+                    "longest_silence_ms" to 1800000  // 30分钟 = 30 * 60 * 1000 毫秒
+                )
+            )
+
+            val messageStr = mapper.writeValueAsString(configData)
+            Timber.d("发送房间配置更新消息: $messageStr")
+
+            val result = rtcRoom?.sendUserMessage(
+                roomInfo?.uid,
+                messageStr,
+                MessageConfig.RELIABLE_ORDERED
+            )
+
+            Timber.d("房间配置更新消息发送结果: $result")
+        } catch (e: Exception) {
+            Timber.e(e, "更新房间配置失败")
         }
     }
     
@@ -497,25 +563,29 @@ class AIRunningCompanionManager @Inject constructor(
         
         override fun onUserMessageReceived(uid: String, message: String) {
             try {
-                Timber.d("收到用户消息: uid=$uid, message长度=${message.length}")
-                
+                Timber.d("收到用户消息: uid=$uid, message长度=${message.length}, message内容=$message")
+
                 val messageMap = mapper.readValue<Map<String, Any>>(
                     message,
                     object : TypeReference<Map<String, Any>>() {}
                 )
-                
+
                 val jsonMap = messageMap.mapValues { (_, value) ->
                     when (value) {
                         is String -> value
                         else -> mapper.writeValueAsString(value)
                     }
                 }
-                
+
+                Timber.d("解析后的事件类型: ${jsonMap["event_type"]}, 完整数据: $jsonMap")
+
                 when (jsonMap["event_type"]) {
                     ChatEventType.CONVERSATION_MESSAGE_DELTA.value -> {
                         val data = jsonMap["data"] as? String
-                        data?.let { 
+                        data?.let {
                             try {
+                                Timber.d("接收到CONVERSATION_MESSAGE_DELTA事件，原始数据: $data")
+
                                 // 简化消息解析，直接使用data内容
                                 // 如果data是JSON字符串，尝试解析；否则直接使用
                                 val messageContent = try {
@@ -523,8 +593,10 @@ class AIRunningCompanionManager @Inject constructor(
                                     dataMap["content"] as? String ?: data
                                 } catch (e: Exception) {
                                     // 如果解析失败，直接使用原始数据
+                                    Timber.d("解析消息JSON失败，使用原始数据: ${e.message}")
                                     data
                                 }
+                                Timber.d("解析后的消息内容: $messageContent")
                                 updateMessage(messageContent)
                             } catch (e: Exception) {
                                 Timber.e(e, "解析消息内容失败")
@@ -533,12 +605,31 @@ class AIRunningCompanionManager @Inject constructor(
                     }
                     ChatEventType.CONVERSATION_MESSAGE_COMPLETED.value -> {
                         Timber.d("AI消息播报完成")
-                        
+
                         // 检查是否是总结播报完成
                         if (isProcessingSummary) {
                             Timber.d("检测到跑步总结播报完成")
                             onSummaryBroadcastCompleted()
                         }
+                    }
+                    // 添加对智能体语音事件的处理
+                    "audio.agent.speech_started" -> {
+                        Timber.d("智能体开始说话")
+                    }
+                    "audio.agent.speech_stopped" -> {
+                        Timber.d("智能体结束说话")
+                    }
+                    "conversation.message.completed" -> {
+                        Timber.d("消息完成事件")
+                    }
+                    "conversation.chat.completed" -> {
+                        Timber.d("对话完成事件")
+                    }
+                    "error" -> {
+                        val errorData = jsonMap["data"] as? Map<*, *>
+                        val errorCode = errorData?.get("code")
+                        val errorMsg = errorData?.get("msg")
+                        Timber.e("收到错误事件: code=$errorCode, msg=$errorMsg")
                     }
                 }
             } catch (e: Exception) {
@@ -638,26 +729,43 @@ class AIRunningCompanionManager @Inject constructor(
         scope.launch {
             val currentMessage = _lastMessage.value
             _lastMessage.value = currentMessage + content
+            Timber.d("更新AI消息: $content, 当前完整消息: ${_lastMessage.value}")
+
+            // 添加调试信息，检查是否触发了音频播放
+            Timber.d("AI消息更新后，当前连接状态: ${_connectionState.value}")
         }
     }
     
     private fun sendMessageToAI(prompt: String) {
         try {
+            Timber.d("发送消息到AI: $prompt")
+            // 使用conversation.message.create事件发送用户消息，触发AI回复
             val data = mapOf(
                 "id" to "broadcast_${System.currentTimeMillis()}",
-                "event_type" to "conversation.chat.created",
-                "data" to mapper.writeValueAsString(mapOf("message" to prompt))
+                "event_type" to "conversation.message.create",  // 创建对话消息
+                "data" to mapper.writeValueAsString(
+                    mapOf(
+                        "role" to "user",        // 表示是用户发送的消息
+                        "content_type" to "text", // 内容类型
+                        "content" to prompt      // 实际消息内容
+                    )
+                )
             )
-            
-            rtcRoom?.sendUserMessage(
+
+            val messageStr = mapper.writeValueAsString(data)
+            Timber.d("发送的消息内容: $messageStr")
+
+            val result = rtcRoom?.sendUserMessage(
                 roomInfo?.uid,
-                mapper.writeValueAsString(data),
+                messageStr,
                 MessageConfig.RELIABLE_ORDERED
             )
-            
+
+            Timber.d("发送消息结果: $result")
+
             // 清空上一条消息
             _lastMessage.value = ""
-            
+
         } catch (e: Exception) {
             Timber.e(e, "发送消息到AI失败")
         }
