@@ -1,7 +1,6 @@
 package com.sdevprem.runtrack.ai.manager
 
 import android.content.Context
-import android.util.Log
 import com.coze.openapi.client.audio.rooms.CreateRoomReq
 import com.coze.openapi.client.audio.rooms.CreateRoomResp
 import com.coze.openapi.client.chat.model.ChatEventType
@@ -9,12 +8,18 @@ import com.coze.openapi.service.service.CozeAPI
 import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.sdevprem.runtrack.ai.config.CozeConfig
+import com.sdevprem.runtrack.ai.config.AIProviderConfig
 import com.sdevprem.runtrack.ai.model.AIBroadcastType
 import com.sdevprem.runtrack.ai.model.AIConnectionState
 import com.sdevprem.runtrack.ai.model.RunningContext
 import com.sdevprem.runtrack.ai.model.AIBroadcastState
 import com.sdevprem.runtrack.ai.model.SummaryBroadcastState
 import com.sdevprem.runtrack.ai.audio.AudioRouteManager
+import com.sdevprem.runtrack.ai.audio.AudioStreamPlayer
+import com.sdevprem.runtrack.ai.audio.WebSocketAudioRecorder
+import com.sdevprem.runtrack.ai.realtime.provider.AIRealtimeProvider
+import com.sdevprem.runtrack.ai.realtime.provider.AIRealtimeProviderEvent
+import com.sdevprem.runtrack.ai.realtime.provider.AIRealtimeProviderFactory
 import com.ss.bytertc.engine.RTCRoom
 import com.ss.bytertc.engine.RTCVideo
 import com.ss.bytertc.engine.RTCRoomConfig
@@ -39,13 +44,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancelChildren
+import kotlinx.coroutines.flow.collectLatest
 
 @Singleton
 class AIRunningCompanionManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val cozeConfig: CozeConfig,
+    private val aiProviderConfig: AIProviderConfig,
     private val cozeAPIManager: CozeAPIManager,
-    private val audioRouteManager: AudioRouteManager
+    private val realtimeProviderFactory: AIRealtimeProviderFactory,
+    private val audioRouteManager: AudioRouteManager,
+    private val audioRecorder: WebSocketAudioRecorder,
+    private val audioStreamPlayer: AudioStreamPlayer
 ) {
     companion object {
         private const val TAG = "AIRunningCompanion"
@@ -62,6 +72,9 @@ class AIRunningCompanionManager @Inject constructor(
     private var roomInfo: CreateRoomResp? = null
     private var cozeAPI: CozeAPI? = null
     private var keepAliveJob: Job? = null
+    private var realtimeEventsJob: Job? = null
+    private var realtimeAudioJob: Job? = null
+    private var realtimeProvider: AIRealtimeProvider? = null
     
     // 状态管理
     private val _connectionState = MutableStateFlow(AIConnectionState.DISCONNECTED)
@@ -69,6 +82,9 @@ class AIRunningCompanionManager @Inject constructor(
     
     private val _lastMessage = MutableStateFlow("")
     val lastMessage: StateFlow<String> = _lastMessage.asStateFlow()
+
+    private val _userTranscript = MutableStateFlow("")
+    val userTranscript: StateFlow<String> = _userTranscript.asStateFlow()
     
     // 总结播报状态管理
     private val _summaryBroadcastState = MutableStateFlow(SummaryBroadcastState())
@@ -85,14 +101,23 @@ class AIRunningCompanionManager @Inject constructor(
      * 初始化AI陪跑功能
      */
     fun initialize() {
+        // 初始化音频路由管理器
+        audioRouteManager.initialize()
+
+        if (aiProviderConfig.isWebSocketEnabled()) {
+            realtimeProvider = realtimeProviderFactory.get(aiProviderConfig.provider)
+            if (realtimeProvider?.isConfigured != true) {
+                Timber.w("WebSocket配置不完整，无法初始化AI陪跑功能")
+            }
+            Timber.d("AI陪跑管理器初始化完成（WebSocket模式）")
+            return
+        }
+
         if (!cozeConfig.isConfigured()) {
             Timber.w("Coze配置不完整，无法初始化AI陪跑功能")
             return
         }
-        
-        // 初始化音频路由管理器
-        audioRouteManager.initialize()
-        
+
         cozeAPI = cozeAPIManager.getCozeAPI()
         Timber.d("AI陪跑管理器初始化完成")
     }
@@ -115,52 +140,87 @@ class AIRunningCompanionManager @Inject constructor(
         }
         
         // 确保初始化完成
-        if (cozeAPI == null) {
-            initialize()
-        }
-        
-        if (!cozeConfig.isConfigured()) {
-            Timber.e("Coze配置不完整，无法连接AI陪跑服务")
-            _connectionState.value = AIConnectionState.ERROR
-            return
-        }
-        
-        if (cozeAPI == null) {
-            Timber.e("CozeAPI未初始化，无法连接AI陪跑服务")
-            _connectionState.value = AIConnectionState.ERROR
-            return
+        if (aiProviderConfig.isWebSocketEnabled()) {
+            realtimeProvider = realtimeProviderFactory.get(aiProviderConfig.provider)
+            if (realtimeProvider?.isConfigured != true) {
+                Timber.e("WebSocket配置不完整，无法连接AI陪跑服务")
+                _connectionState.value = AIConnectionState.ERROR
+                return
+            }
+        } else {
+            if (cozeAPI == null) {
+                initialize()
+            }
+
+            if (!cozeConfig.isConfigured()) {
+                Timber.e("Coze配置不完整，无法连接AI陪跑服务")
+                _connectionState.value = AIConnectionState.ERROR
+                return
+            }
+
+            if (cozeAPI == null) {
+                Timber.e("CozeAPI未初始化，无法连接AI陪跑服务")
+                _connectionState.value = AIConnectionState.ERROR
+                return
+            }
         }
         
         _connectionState.value = AIConnectionState.CONNECTING
         Timber.d("开始连接AI陪跑服务...")
         
-        scope.launch(Dispatchers.IO) {
-            try {
-                // 创建Coze房间
-                val req = CreateRoomReq.builder()
-                    .botID(cozeConfig.botID)
-                    .voiceID(cozeConfig.voiceID)
-                    .build()
-                
-                Timber.d("创建Coze房间请求: botID=${cozeConfig.botID}, voiceID=${cozeConfig.voiceID}")
-                
-                val tempRoomInfo = cozeAPI!!.audio().rooms().create(req)
-                
-                if (tempRoomInfo == null) {
-                    throw Exception("创建Coze房间失败，返回null")
+        if (aiProviderConfig.isWebSocketEnabled()) {
+            val provider = realtimeProvider
+            if (provider == null) {
+                _connectionState.value = AIConnectionState.ERROR
+                return
+            }
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val result = provider.connect()
+                    if (result.isFailure) {
+                        throw result.exceptionOrNull() ?: Exception("WebSocket连接失败")
+                    }
+                    scope.launch(Dispatchers.Main) {
+                        setupRealtimeAudioPipeline(provider)
+                        startRealtimeEventCollection(provider)
+                        _connectionState.value = AIConnectionState.CONNECTED
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "WebSocket连接失败")
+                    scope.launch(Dispatchers.Main) {
+                        _connectionState.value = AIConnectionState.ERROR
+                    }
                 }
-                
-                Timber.d("Coze房间创建成功: roomID=${tempRoomInfo.roomID}, appID=${tempRoomInfo.appID}")
-                
-                roomInfo = tempRoomInfo
-                
-                scope.launch(Dispatchers.Main) {
-                    setupRTCEngine()
-                }
-            } catch (e: Exception) {
-                Timber.e(e, "连接AI陪跑服务失败")
-                scope.launch(Dispatchers.Main) {
-                    _connectionState.value = AIConnectionState.ERROR
+            }
+        } else {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    // 创建Coze房间
+                    val req = CreateRoomReq.builder()
+                        .botID(cozeConfig.botID)
+                        .voiceID(cozeConfig.voiceID)
+                        .build()
+                    
+                    Timber.d("创建Coze房间请求: botID=${cozeConfig.botID}, voiceID=${cozeConfig.voiceID}")
+                    
+                    val tempRoomInfo = cozeAPI!!.audio().rooms().create(req)
+                    
+                    if (tempRoomInfo == null) {
+                        throw Exception("创建Coze房间失败，返回null")
+                    }
+                    
+                    Timber.d("Coze房间创建成功: roomID=${tempRoomInfo.roomID}, appID=${tempRoomInfo.appID}")
+                    
+                    roomInfo = tempRoomInfo
+                    
+                    scope.launch(Dispatchers.Main) {
+                        setupRTCEngine()
+                    }
+                } catch (e: Exception) {
+                    Timber.e(e, "连接AI陪跑服务失败")
+                    scope.launch(Dispatchers.Main) {
+                        _connectionState.value = AIConnectionState.ERROR
+                    }
                 }
             }
         }
@@ -181,9 +241,14 @@ class AIRunningCompanionManager @Inject constructor(
 
             // 恢复原始音频设置
             audioRouteManager.restoreOriginalSettings()
-            
-            // 清理RTC资源
-            cleanupRTCResources()
+
+            if (aiProviderConfig.isWebSocketEnabled()) {
+                stopRealtimePipeline()
+                realtimeProvider?.disconnect()
+            } else {
+                // 清理RTC资源
+                cleanupRTCResources()
+            }
             
             // 清理房间信息
             roomInfo = null
@@ -666,7 +731,7 @@ class AIRunningCompanionManager @Inject constructor(
 
                 when (jsonMap["event_type"]) {
                     ChatEventType.CONVERSATION_MESSAGE_DELTA.value -> {
-                        val data = jsonMap["data"] as? String
+                        val data = jsonMap["data"]
                         data?.let {
                             try {
                                 Timber.d("接收到CONVERSATION_MESSAGE_DELTA事件，原始数据: $data")
@@ -716,7 +781,7 @@ class AIRunningCompanionManager @Inject constructor(
                     }
                     "error" -> {
                         // 错误事件的 data 在 jsonMap 中总是被序列化为字符串，这里按字符串 JSON 解析
-                        val dataStr = jsonMap["data"] as? String
+                        val dataStr = jsonMap["data"]
                         var errorCode: Int? = null
                         var errorMsg: String? = null
 
@@ -746,10 +811,12 @@ class AIRunningCompanionManager @Inject constructor(
             }
         }
         
+        @Deprecated("Deprecated in RTC SDK")
         override fun onRoomWarning(warn: Int) {
             Timber.w("房间警告: $warn")
         }
         
+        @Deprecated("Deprecated in RTC SDK")
         override fun onRoomError(err: Int) {
             Timber.e("房间错误: $err")
             val errorMessage = getRoomErrorMessage(err)
@@ -852,6 +919,12 @@ class AIRunningCompanionManager @Inject constructor(
         try {
             Timber.d("发送消息到AI: $prompt")
 
+            if (aiProviderConfig.isWebSocketEnabled()) {
+                realtimeProvider?.sendText(prompt)
+                _lastMessage.value = ""
+                return
+            }
+
             // 根据 Coze Realtime 文档构造 conversation.message.create 事件：
             // data 字段必须是一个对象，而不是 JSON 字符串
             val messageData = mapOf(
@@ -891,6 +964,61 @@ class AIRunningCompanionManager @Inject constructor(
             Timber.e(e, "发送消息到AI失败")
         }
     }
+
+    private fun setupRealtimeAudioPipeline(provider: AIRealtimeProvider) {
+        stopRealtimePipeline()
+
+        try {
+            audioRouteManager.setupForAICall()
+        } catch (e: Exception) {
+            Timber.w(e, "WebSocket音频路由配置失败")
+        }
+
+        audioRecorder.setUseLocalVad(provider.localVadEnabled)
+        audioStreamPlayer.start()
+        audioRecorder.start()
+
+        realtimeAudioJob = scope.launch(Dispatchers.IO) {
+            audioRecorder.audioFrames.collect { frame ->
+                provider.sendAudioFrame(frame)
+            }
+        }
+    }
+
+    private fun startRealtimeEventCollection(provider: AIRealtimeProvider) {
+        realtimeEventsJob?.cancel()
+        realtimeEventsJob = scope.launch {
+            provider.observeEvents().collectLatest { event ->
+                when (event) {
+                    is AIRealtimeProviderEvent.UserTranscript -> {
+                        _userTranscript.value = event.text
+                    }
+                    is AIRealtimeProviderEvent.AssistantTextDelta -> {
+                        updateMessage(event.text)
+                    }
+                    is AIRealtimeProviderEvent.AssistantAudioDelta -> {
+                        audioStreamPlayer.play(event.audio)
+                    }
+                    is AIRealtimeProviderEvent.AssistantCompleted -> {
+                        handleBroadcastCompleted()
+                    }
+                    is AIRealtimeProviderEvent.Error -> {
+                        _connectionState.value = AIConnectionState.ERROR
+                    }
+                }
+            }
+        }
+    }
+
+    private fun stopRealtimePipeline() {
+        realtimeAudioJob?.cancel()
+        realtimeAudioJob = null
+        realtimeEventsJob?.cancel()
+        realtimeEventsJob = null
+        audioRecorder.stop()
+        audioStreamPlayer.stop()
+        _userTranscript.value = ""
+    }
     
     private fun buildPrompt(type: AIBroadcastType, context: RunningContext): String {
         return "${type.prompt}\n\n${context.toAIContext()}"
@@ -925,6 +1053,15 @@ class AIRunningCompanionManager @Inject constructor(
                 _summaryBroadcastState.value = SummaryBroadcastState()
             }
         }
+    }
+
+    private fun handleBroadcastCompleted() {
+        Timber.d("AI消息播报完成")
+        if (isProcessingSummary) {
+            Timber.d("检测到跑步总结播报完成")
+            onSummaryBroadcastCompleted()
+        }
+        lastRegularBroadcastTime = System.currentTimeMillis()
     }
     
 

@@ -10,4 +10,46 @@
     <string name="coze_bot_id">7526888735221415975</string>
     <string name="coze_voice_id">7426725529589530651</string>
 <!--    <string name="coze_voice_id">7426720361732931593</string>-->
+
+    <!-- 配置使用火山RTC 或者 websocket（默认 rtc） -->
+    <string name="ai_transport_mode">rtc</string>
+    <!-- <string name="ai_transport_mode">websocket</string> -->
+
+    <!-- 当使用websocket的时候，配置使用火山或者百炼（默认 volcano） -->
+    <string name="ai_provider">volcano</string>
+    <!-- <string name="ai_provider">bailian</string> -->
+
+    <!-- 旧统一协议 WebSocket（如无自建服务可留空） -->
+    <string name="ai_ws_volcano_url"></string>
+    <string name="ai_ws_volcano_token"></string>
+
+    <string name="ai_ws_bailian_url"></string>
+    <string name="ai_ws_bailian_token"></string>
+    
+    <!-- 百炼相关配置（模板） -->
+    <string name="ai_bailian_api_key"></string>
+    <string name="ai_bailian_realtime_url">wss://dashscope.aliyuncs.com/api-ws/v1/realtime</string>
+    <string name="ai_bailian_llm_base_url">https://dashscope.aliyuncs.com/compatible-mode/v1</string>
+    <string name="ai_bailian_asr_model">qwen3-asr-flash-realtime</string>
+    <string name="ai_bailian_llm_model">qwen-plus</string>
+    <string name="ai_bailian_tts_model">qwen3-tts-flash-realtime</string>
+    <string name="ai_bailian_tts_voice">Cherry</string>
+    <string name="ai_bailian_tts_format">PCM_24000HZ_MONO_16BIT</string>
+    <string name="ai_bailian_vad_mode">server</string>
+    <string name="ai_bailian_vad_silence_ms">500</string>
+
+    <!-- 火山 V3（二进制）相关配置（模板） -->
+    <string name="ai_volcano_ws_mode">json</string>
+    <string name="ai_volcano_app_id"></string>
+    <string name="ai_volcano_access_key"></string>
+    <string name="ai_volcano_asr_resource_id"></string>
+    <string name="ai_volcano_tts_resource_id"></string>
+    <string name="ai_volcano_asr_url">wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async</string>
+    <string name="ai_volcano_tts_url">wss://openspeech.bytedance.com/api/v3/tts/bidirection</string>
+    <string name="ai_volcano_tts_voice"></string>
+    <string name="ai_volcano_tts_model">seed-tts-2.0</string>
+    <string name="ai_volcano_tts_sample_rate">24000</string>
+    <string name="ai_volcano_ark_api_key"></string>
+    <string name="ai_volcano_ark_base_url">https://ark.cn-beijing.volces.com/api/v3</string>
+    <string name="ai_volcano_ark_model"></string>
 </resources>
