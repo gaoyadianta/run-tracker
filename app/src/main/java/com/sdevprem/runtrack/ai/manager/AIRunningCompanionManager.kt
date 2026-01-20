@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import timber.log.Timber
 import java.nio.ByteBuffer
 import javax.inject.Inject
@@ -47,6 +49,9 @@ class AIRunningCompanionManager @Inject constructor(
 ) {
     companion object {
         private const val TAG = "AIRunningCompanion"
+        // Coze 用户无操作超时策略不可控，这里通过定期发送 session.update 进行保活
+        // 参考示例项目实现：每10分钟刷新一次完整会话配置
+        private const val KEEP_ALIVE_INTERVAL_MS = 600_000L // 10分钟心跳
     }
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -56,6 +61,7 @@ class AIRunningCompanionManager @Inject constructor(
     private var rtcRoom: RTCRoom? = null
     private var roomInfo: CreateRoomResp? = null
     private var cozeAPI: CozeAPI? = null
+    private var keepAliveJob: Job? = null
     
     // 状态管理
     private val _connectionState = MutableStateFlow(AIConnectionState.DISCONNECTED)
@@ -170,6 +176,9 @@ class AIRunningCompanionManager @Inject constructor(
             // 更新状态
             _connectionState.value = AIConnectionState.DISCONNECTED
             
+            // 停止心跳保活
+            stopKeepAlive()
+
             // 恢复原始音频设置
             audioRouteManager.restoreOriginalSettings()
             
@@ -437,7 +446,20 @@ class AIRunningCompanionManager @Inject constructor(
             Timber.d("RTC引擎设置完成，已连接到AI陪跑服务")
 
             // 更新房间配置，将最长沉默时间设置为30分钟（1800000毫秒）
+            // 参考 SessionManager 方案：使用完整的会话配置结构
             updateRoomConfig()
+
+            // 连接稳定后再补发一次配置，提升生效概率
+            scope.launch {
+                delay(3000)
+                if (_connectionState.value == AIConnectionState.CONNECTED) {
+                    Timber.d("连接稳定后再次更新会话配置")
+                    updateRoomConfig()
+                }
+            }
+
+            // 启动会话保活心跳，定期刷新会话配置，避免被重置为默认3分钟
+            startKeepAlive()
 
         } catch (e: Exception) {
             Timber.e(e, "设置RTC引擎失败")
@@ -450,21 +472,50 @@ class AIRunningCompanionManager @Inject constructor(
 
     /**
      * 更新房间配置，设置最长沉默时间为30分钟
+     * 参考官方示例中的 SessionManager 实现，构造完整的会话配置结构
      */
     private fun updateRoomConfig() {
         try {
-            val configData = mapOf(
-                "id" to "config_update_${System.currentTimeMillis()}",
-                "event_type" to "session.update",
-                "data" to mapOf(
-                    "longest_silence_ms" to 1800000  // 30分钟 = 30 * 60 * 1000 毫秒
+            Timber.d("=== 更新会话配置，尝试将沉默超时时间延长到30分钟 ===")
+
+            // 构建完整的会话配置数据
+            val sessionData = mapOf(
+                "longest_silence_ms" to 1_800_000,  // 30分钟 = 30 * 60 * 1000 毫秒
+                "speech_rate" to 0,                 // 正常语速
+                "event_subscriptions" to listOf(    // 订阅常用事件，方便调试
+                    "error",
+                    "session.updated",
+                    "conversation.message.delta",
+                    "conversation.message.completed"
+                ),
+                "turn_detection" to mapOf(          // 语音检测配置
+                    "type" to "server_vad",
+                    "prefix_padding_ms" to 600,
+                    "silence_duration_ms" to 500
+                ),
+                "asr_config" to mapOf(              // 语音识别配置
+                    "enable_itn" to true,
+                    "enable_punc" to true,
+                    "enable_ddc" to true
+                ),
+                "chat_config" to mapOf(             // 会话配置
+                    "allow_voice_interrupt" to true,
+                    "interrupt_config" to mapOf(
+                        "mode" to "all"
+                    )
                 )
             )
 
-            val messageStr = mapper.writeValueAsString(configData)
+            val eventData = mapOf(
+                "id" to "session_update_${System.currentTimeMillis()}",
+                "event_type" to "session.update",
+                "data" to sessionData
+            )
+
+            val messageStr = mapper.writeValueAsString(eventData)
             Timber.d("发送房间配置更新消息: $messageStr")
 
-            // 按文档要求，将配置更新事件发送给房间内的智能体（bot_id）
+            // 发送给房间内的智能体（bot_id）
             val targetUserId = cozeConfig.botID
 
             val result = rtcRoom?.sendUserMessage(
@@ -478,12 +529,39 @@ class AIRunningCompanionManager @Inject constructor(
             Timber.e(e, "更新房间配置失败")
         }
     }
-    
+
+    /**
+     * 启动会话保活心跳，通过定期发送 session.update 保持会话活跃
+     */
+    private fun startKeepAlive() {
+        keepAliveJob?.cancel()
+        keepAliveJob = scope.launch {
+            while (isActive) {
+                delay(KEEP_ALIVE_INTERVAL_MS)
+                if (_connectionState.value == AIConnectionState.CONNECTED) {
+                    Timber.d("定期刷新会话配置，保持沉默超时时间为30分钟")
+                    updateRoomConfig()
+                }
+            }
+        }
+    }
+
+    /**
+     * 停止心跳协程
+     */
+    private fun stopKeepAlive() {
+        keepAliveJob?.cancel()
+        keepAliveJob = null
+    }
+
     /**
      * 清理RTC资源
      */
     private fun cleanupRTCResources() {
         try {
+            // 确保在资源清理时停止心跳协程
+            stopKeepAlive()
+
             rtcRoom?.apply {
                 try {
                     leaveRoom()
@@ -637,10 +715,30 @@ class AIRunningCompanionManager @Inject constructor(
                         Timber.d("对话完成事件")
                     }
                     "error" -> {
-                        val errorData = jsonMap["data"] as? Map<*, *>
-                        val errorCode = errorData?.get("code")
-                        val errorMsg = errorData?.get("msg")
+                        // 错误事件的 data 在 jsonMap 中总是被序列化为字符串，这里按字符串 JSON 解析
+                        val dataStr = jsonMap["data"] as? String
+                        var errorCode: Int? = null
+                        var errorMsg: String? = null
+
+                        if (!dataStr.isNullOrEmpty()) {
+                            try {
+                                val dataMap = mapper.readValue<Map<String, Any>>(
+                                    dataStr,
+                                    object : TypeReference<Map<String, Any>>() {}
+                                )
+                                errorCode = (dataMap["code"] as? Number)?.toInt()
+                                errorMsg = dataMap["msg"] as? String
+                            } catch (e: Exception) {
+                                Timber.e(e, "解析错误事件data失败, 原始data: $dataStr")
+                            }
+                        }
+
                         Timber.e("收到错误事件: code=$errorCode, msg=$errorMsg")
+
+                        // 4029：The connection was closed due to prolonged user inactivity.
+                        if (errorCode == 4029) {
+                            Timber.w("检测到用户长时间无操作导致会话被服务端关闭(code=4029)，后续将依赖自动重连与心跳进行恢复")
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -665,7 +763,8 @@ class AIRunningCompanionManager @Inject constructor(
                     // 延迟重连，避免立即重连可能导致的循环
                     scope.launch(Dispatchers.Main) {
                         delay(3000) // 3秒后重连
-                        if (_connectionState.value == AIConnectionState.ERROR) {
+                        // 只要当前不在已连接状态（可能是 ERROR 或 DISCONNECTED），都尝试重连
+                        if (_connectionState.value != AIConnectionState.CONNECTED) {
                             Timber.d("开始自动重连...")
                             connect()
                         }
@@ -677,6 +776,8 @@ class AIRunningCompanionManager @Inject constructor(
         override fun onLeaveRoom(stats: com.ss.bytertc.engine.type.RTCRoomStats) {
             Timber.d("离开房间，统计信息: $stats")
             scope.launch(Dispatchers.Main) {
+                // 离开房间后停止心跳
+                stopKeepAlive()
                 _connectionState.value = AIConnectionState.DISCONNECTED
             }
         }
