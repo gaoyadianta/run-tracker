@@ -44,6 +44,7 @@ import com.sdevprem.runtrack.R
 import com.sdevprem.runtrack.common.extension.getDisplayDate
 import com.sdevprem.runtrack.common.utils.DateTimeUtils
 import com.sdevprem.runtrack.common.utils.RunUtils
+import com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint
 import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.ui.share.ShareCardRenderer
 import com.sdevprem.runtrack.ui.share.ShareImageUtils
@@ -54,6 +55,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
+import kotlin.math.abs
 
 @Composable
 fun RunDetailScreen(
@@ -66,7 +68,7 @@ fun RunDetailScreen(
     val coroutineScope = rememberCoroutineScope()
     var highlightTimeMs by remember { mutableStateOf(0L) }
     var shareTarget by remember { mutableStateOf(ShareTarget.WECHAT) }
-    var selectedAnnotation by remember { mutableStateOf<com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint?>(null) }
+    var selectedAnnotation by remember { mutableStateOf<RunAiAnnotationPoint?>(null) }
 
     LaunchedEffect(state.metrics) {
         if (highlightTimeMs == 0L) {
@@ -80,6 +82,13 @@ fun RunDetailScreen(
     val highlightLocation = remember(state.pathPoints, highlightTimeMs, state.run) {
         val duration = state.run?.durationInMillis ?: 0L
         findLocationForTime(state.pathPoints, highlightTimeMs, duration)
+    }
+    LaunchedEffect(highlightTimeMs, state.aiAnnotations) {
+        selectedAnnotation = findClosestAnnotation(
+            annotations = state.aiAnnotations,
+            targetTimeMs = highlightTimeMs,
+            thresholdMs = 60_000L
+        )
     }
 
     Scaffold(
@@ -120,7 +129,10 @@ fun RunDetailScreen(
                             annotations = state.aiAnnotations,
                             highlightLocation = highlightLocation,
                             onSnapshot = {},
-                            onAnnotationClick = { selectedAnnotation = it }
+                            onAnnotationClick = { annotation ->
+                                selectedAnnotation = annotation
+                                highlightTimeMs = annotation.timeOffsetMs
+                            }
                         )
                     }
                 }
@@ -222,6 +234,7 @@ fun RunDetailScreen(
 
                 RunMetricsSection(
                     metrics = state.metrics,
+                    annotations = state.aiAnnotations,
                     highlightTimeMs = highlightTimeMs,
                     onHighlightTimeChange = { highlightTimeMs = it }
                 )
@@ -405,4 +418,22 @@ private fun findLocationForTime(
         }
     }
     return locations[bestIndex].locationInfo
+}
+
+private fun findClosestAnnotation(
+    annotations: List<RunAiAnnotationPoint>,
+    targetTimeMs: Long,
+    thresholdMs: Long
+): RunAiAnnotationPoint? {
+    if (annotations.isEmpty()) return null
+    var best: RunAiAnnotationPoint? = null
+    var bestDiff = Long.MAX_VALUE
+    annotations.forEach { annotation ->
+        val diff = abs(annotation.timeOffsetMs - targetTimeMs)
+        if (diff < bestDiff) {
+            bestDiff = diff
+            best = annotation
+        }
+    }
+    return if (bestDiff <= thresholdMs) best else null
 }

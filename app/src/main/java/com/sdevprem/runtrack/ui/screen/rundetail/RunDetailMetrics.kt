@@ -50,6 +50,7 @@ import com.patrykandpatrick.vico.core.model.lineSeries
 import com.sdevprem.runtrack.common.utils.DateTimeUtils
 import com.sdevprem.runtrack.common.utils.RunUtils
 import com.sdevprem.runtrack.domain.model.MetricPoint
+import com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint
 import com.sdevprem.runtrack.domain.model.RunMetricsData
 import com.sdevprem.runtrack.domain.model.RunSplit
 import kotlinx.coroutines.Dispatchers
@@ -61,6 +62,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 @Composable
 fun RunMetricsSection(
     metrics: RunMetricsData,
+    annotations: List<RunAiAnnotationPoint>,
     highlightTimeMs: Long,
     onHighlightTimeChange: (Long) -> Unit,
     modifier: Modifier = Modifier
@@ -94,6 +96,9 @@ fun RunMetricsSection(
                 1 -> metrics.heartRateSeries
                 else -> metrics.elevationSeries
             }
+            val annotationTimes = remember(annotations) {
+                annotations.map { it.timeOffsetMs }.distinct()
+            }
             val unitLabel = when (selectedTab) {
                 0 -> "min/km"
                 1 -> "bpm"
@@ -112,10 +117,18 @@ fun RunMetricsSection(
                 val highlightIndex = closestIndex(times, highlightTimeMs)
 
                 RunMetricsChart(
-                    points = smoothSeries(series, windowSize = if (selectedTab == 2) 5 else 3),
+                    points = smoothSeries(
+                        series,
+                        windowSize = when (selectedTab) {
+                            0 -> 5
+                            1 -> 3
+                            else -> 7
+                        }
+                    ),
                     unitLabel = unitLabel,
                     invert = isPace,
                     times = times,
+                    annotationTimes = annotationTimes,
                     highlightIndex = highlightIndex,
                     onPointSelected = onHighlightTimeChange,
                     modifier = Modifier
@@ -150,6 +163,7 @@ private fun RunMetricsChart(
     unitLabel: String,
     invert: Boolean,
     times: List<Long>,
+    annotationTimes: List<Long>,
     highlightIndex: Int?,
     onPointSelected: (Long) -> Unit,
     modifier: Modifier = Modifier
@@ -157,6 +171,7 @@ private fun RunMetricsChart(
     val extraStoreKey = remember { ExtraStore.Key<List<Long>>() }
     val modelProducer = remember { CartesianChartModelProducer.build() }
     val primaryColor = MaterialTheme.colorScheme.primary
+    val annotationColor = MaterialTheme.colorScheme.secondary
     val values = remember(points) { points.map { it.value } }
     val minValue = remember(values) { values.minOrNull() ?: 0f }
     val maxValue = remember(values) { values.maxOrNull() ?: 0f }
@@ -169,9 +184,27 @@ private fun RunMetricsChart(
             label = TextComponent.build { textSizeSp = 0f }
         )
     }
-    val markers = remember(highlightIndex, marker) {
-        if (highlightIndex == null) emptyMap()
-        else mapOf(highlightIndex.toFloat() to marker)
+    val annotationMarker = remember(annotationColor) {
+        MarkerComponent(
+            indicator = ShapeComponent(
+                shape = Shapes.pillShape,
+                color = annotationColor.toArgb()
+            ),
+            label = TextComponent.build { textSizeSp = 0f }
+        )
+    }
+    val annotationIndices = remember(annotationTimes, times) {
+        annotationTimes.mapNotNull { time ->
+            closestIndex(times, time)
+        }.distinct()
+    }
+    val markers = remember(highlightIndex, annotationIndices, annotationMarker, marker) {
+        buildMap<Float, MarkerComponent> {
+            annotationIndices.forEach { index ->
+                put(index.toFloat(), annotationMarker)
+            }
+            highlightIndex?.let { put(it.toFloat(), marker) }
+        }
     }
     var chartWidthPx by remember { mutableStateOf(0) }
 
@@ -211,7 +244,7 @@ private fun RunMetricsChart(
                     lines = listOf(
                         rememberLineSpec(
                             shader = DynamicShaders.color(primaryColor),
-                            pointConnector = DefaultPointConnector(cubicStrength = 0.35f)
+                            pointConnector = DefaultPointConnector(cubicStrength = 0.45f)
                         )
                     )
                 ),
@@ -221,7 +254,10 @@ private fun RunMetricsChart(
                         invert = invert,
                         minValue = minValue,
                         maxValue = maxValue
-                    )
+                    ),
+                    itemPlacer = remember {
+                        AxisItemPlacer.Vertical.count(count = { 5 })
+                    }
                 ),
                 bottomAxis = rememberBottomAxis(
                     valueFormatter = rememberBottomAxisValueFormatter(extraStoreKey),
