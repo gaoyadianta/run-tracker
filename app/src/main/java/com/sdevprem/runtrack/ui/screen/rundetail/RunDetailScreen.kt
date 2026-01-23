@@ -2,7 +2,9 @@ package com.sdevprem.runtrack.ui.screen.rundetail
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -12,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -39,8 +43,13 @@ import com.sdevprem.runtrack.R
 import com.sdevprem.runtrack.common.extension.getDisplayDate
 import com.sdevprem.runtrack.common.utils.DateTimeUtils
 import com.sdevprem.runtrack.common.utils.RunUtils
+import com.sdevprem.runtrack.ui.share.ShareCardRenderer
+import com.sdevprem.runtrack.ui.share.ShareImageUtils
 import com.sdevprem.runtrack.ui.screen.currentrun.component.Map as RunRouteMap
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 @Composable
 fun RunDetailScreen(
@@ -49,6 +58,8 @@ fun RunDetailScreen(
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showDeleteDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -161,6 +172,84 @@ fun RunDetailScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                RunMetricsSection(metrics = state.metrics)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Text(
+                    text = "Share",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            val run = state.run ?: return@Button
+                            coroutineScope.launch(Dispatchers.Default) {
+                                val bitmap = ShareCardRenderer.renderStoryCard(
+                                    context = context,
+                                    run = run,
+                                    oneLiner = state.oneLiner,
+                                    summary = state.summary
+                                )
+                                ShareImageUtils.shareBitmap(
+                                    context = context,
+                                    bitmap = bitmap,
+                                    name = "run_story_${run.id}.png",
+                                    title = "Share Run Story"
+                                )
+                            }
+                        }
+                    ) {
+                        Text(text = "Story")
+                    }
+                    Button(
+                        onClick = {
+                            val run = state.run ?: return@Button
+                            coroutineScope.launch(Dispatchers.Default) {
+                                val bitmap = ShareCardRenderer.renderQuoteCard(
+                                    context = context,
+                                    run = run,
+                                    quote = state.oneLiner ?: "Keep moving."
+                                )
+                                ShareImageUtils.shareBitmap(
+                                    context = context,
+                                    bitmap = bitmap,
+                                    name = "run_quote_${run.id}.png",
+                                    title = "Share Run Quote"
+                                )
+                            }
+                        }
+                    ) {
+                        Text(text = "Quote")
+                    }
+                    Button(
+                        onClick = {
+                            val run = state.run ?: return@Button
+                            coroutineScope.launch(Dispatchers.Default) {
+                                val bitmap = ShareCardRenderer.renderCompareCard(
+                                    context = context,
+                                    run = run,
+                                    compareRun = state.compareRun
+                                )
+                                ShareImageUtils.shareBitmap(
+                                    context = context,
+                                    bitmap = bitmap,
+                                    name = "run_compare_${run.id}.png",
+                                    title = "Share Run Compare"
+                                )
+                            }
+                        }
+                    ) {
+                        Text(text = "Compare")
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
