@@ -9,6 +9,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -18,9 +21,12 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -41,11 +47,13 @@ fun RunDetailScreen(
     viewModel: RunDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             RunDetailTopBar(
-                onNavigateUp = navigateUp
+                onNavigateUp = navigateUp,
+                onDelete = if (state.run == null) null else { { showDeleteDialog = true } }
             )
         }
     ) { paddingValues ->
@@ -158,12 +166,39 @@ fun RunDetailScreen(
             }
         }
     }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text(text = "Delete this run?") },
+            text = { Text(text = "This action cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteDialog = false
+                        state.run?.let {
+                            viewModel.deleteRun(it)
+                            navigateUp()
+                        }
+                    }
+                ) {
+                    Text(text = "Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text(text = "Cancel")
+                }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RunDetailTopBar(
-    onNavigateUp: () -> Unit
+    onNavigateUp: () -> Unit,
+    onDelete: (() -> Unit)? = null
 ) {
     TopAppBar(
         title = { Text(text = "Run Details") },
@@ -173,6 +208,16 @@ private fun RunDetailTopBar(
                     imageVector = ImageVector.vectorResource(id = R.drawable.ic_arrow_backward),
                     contentDescription = "Navigate back"
                 )
+            }
+        },
+        actions = {
+            if (onDelete != null) {
+                IconButton(onClick = onDelete) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete run"
+                    )
+                }
             }
         }
     )

@@ -4,17 +4,19 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
+import com.sdevprem.runtrack.data.model.Run
 import com.sdevprem.runtrack.data.repository.AppRepository
 import com.sdevprem.runtrack.ui.nav.Destination
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
 class RunDetailViewModel @Inject constructor(
-    repository: AppRepository,
+    private val repository: AppRepository,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -39,4 +41,10 @@ class RunDetailViewModel @Inject constructor(
             SharingStarted.WhileSubscribed(5_000),
             RunDetailUiState()
         )
+
+    fun deleteRun(run: Run) {
+        viewModelScope.launch {
+            repository.deleteRun(run)
+        }
+    }
 }
