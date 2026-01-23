@@ -29,6 +29,11 @@ sealed class Destination(val route: String) {
 
     data object Settings : Destination("settings")
 
+    data object RunDetail : Destination("run_detail/{runId}") {
+        const val ARG_RUN_ID = "runId"
+        fun createRoute(runId: Int) = "run_detail/$runId"
+    }
+
     //global navigation
     companion object {
         fun navigateToCurrentRunScreen(navController: NavController) {
@@ -37,6 +42,10 @@ sealed class Destination(val route: String) {
 
         fun navigateToSettingsScreen(navController: NavController) {
             navController.navigate(Settings.route)
+        }
+
+        fun navigateToRunDetail(navController: NavController, runId: Int) {
+            navController.navigate(RunDetail.createRoute(runId))
         }
     }
 

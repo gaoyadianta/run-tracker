@@ -3,7 +3,6 @@ package com.sdevprem.runtrack.ui.screen.runninghistory
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.paging.cachedIn
-import com.sdevprem.runtrack.data.model.Run
 import com.sdevprem.runtrack.data.repository.AppRepository
 import com.sdevprem.runtrack.data.utils.RunSortOrder
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -28,21 +27,7 @@ class RunningHistoryVM @Inject constructor(
             .cachedIn(viewModelScope)
     }
 
-    private val _dialogRun = MutableStateFlow<Run?>(null)
-    val dialogRun = _dialogRun.asStateFlow()
-
     fun setSortOrder(sortOrder: RunSortOrder) {
         _runSortOrder.value = sortOrder
-    }
-
-    fun setDialogRun(run: Run?) {
-        _dialogRun.value = run
-    }
-
-    fun deleteRun() = dialogRun.value?.let {
-        viewModelScope.launch {
-            _dialogRun.value = null
-            repository.deleteRun(it)
-        }
     }
 }

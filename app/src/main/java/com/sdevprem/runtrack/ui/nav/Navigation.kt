@@ -2,12 +2,15 @@ package com.sdevprem.runtrack.ui.nav
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.navArgument
 import com.sdevprem.runtrack.ui.nav.Destination.CurrentRun
 import com.sdevprem.runtrack.ui.screen.currentrun.CurrentRunScreen
 import com.sdevprem.runtrack.ui.screen.onboard.OnBoardScreen
 import com.sdevprem.runtrack.ui.screen.profile.ProfileScreen
+import com.sdevprem.runtrack.ui.screen.rundetail.RunDetailScreen
 import com.sdevprem.runtrack.ui.screen.runstats.RunStatsScreen
 import com.sdevprem.runtrack.ui.screen.settings.SettingsScreen
 
@@ -51,6 +54,17 @@ private fun SetupNavGraph(
 
         composable(route = Destination.RunStats.route) {
             RunStatsScreen(
+                navigateUp = { navController.navigateUp() }
+            )
+        }
+
+        composable(
+            route = Destination.RunDetail.route,
+            arguments = listOf(
+                navArgument(Destination.RunDetail.ARG_RUN_ID) { type = NavType.IntType }
+            )
+        ) {
+            RunDetailScreen(
                 navigateUp = { navController.navigateUp() }
             )
         }

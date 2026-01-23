@@ -37,7 +37,6 @@ import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
@@ -47,9 +46,9 @@ import com.sdevprem.runtrack.data.model.Run
 import com.sdevprem.runtrack.data.model.RunWithAi
 import com.sdevprem.runtrack.data.utils.RunSortOrder
 import com.sdevprem.runtrack.ui.common.compose.component.DropDownList
-import com.sdevprem.runtrack.ui.common.compose.component.RunInfoDialog
 import com.sdevprem.runtrack.ui.common.compose.component.RunItem
 import com.sdevprem.runtrack.ui.common.compose.compositonLocal.LocalScaffoldBottomPadding
+import com.sdevprem.runtrack.ui.nav.Destination
 
 @Composable
 fun RunningHistoryScreen(
@@ -62,17 +61,11 @@ fun RunningHistoryScreen(
     RunningHistoryScreenContent(
         runItems = runItems,
         onSortOrderSelected = viewModel::setSortOrder,
-        onItemClick = viewModel::setDialogRun,
+        onItemClick = { run ->
+            Destination.navigateToRunDetail(navController, run.id)
+        },
         onNavIconClick = { navController.navigateUp() }
     )
-
-    viewModel.dialogRun.collectAsStateWithLifecycle().value?.let {
-        RunInfoDialog(
-            run = it,
-            onDismiss = { viewModel.setDialogRun(null) },
-            onDelete = { viewModel.deleteRun() }
-        )
-    }
 }
 
 @Composable

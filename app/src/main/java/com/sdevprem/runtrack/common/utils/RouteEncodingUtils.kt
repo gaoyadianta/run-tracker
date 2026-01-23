@@ -27,6 +27,9 @@ object RouteEncodingUtils {
             }
     }
 
+    fun decodeToPathPoints(encoded: String): List<PathPoint> =
+        decodePathPoints(encoded).map { PathPoint.LocationPoint(it) }
+
     private fun formatCoord(value: Double): String =
         String.format(Locale.US, "%.6f", value)
 }
