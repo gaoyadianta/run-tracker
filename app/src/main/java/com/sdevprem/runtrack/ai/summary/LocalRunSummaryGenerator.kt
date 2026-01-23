@@ -24,9 +24,9 @@ class LocalRunSummaryGenerator @Inject constructor() {
         }
 
         val oneLiner = when (intensity) {
-            "strong" -> "Strong pace, great focus."
-            "steady" -> "Steady pace, solid control."
-            else -> "Easy effort, smooth strides."
+            "strong" -> "Strong pace today."
+            "steady" -> "Steady pace today."
+            else -> "Easy effort today."
         }
 
         val effortNote = when (intensity) {
