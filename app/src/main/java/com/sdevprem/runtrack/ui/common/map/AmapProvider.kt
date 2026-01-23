@@ -31,6 +31,7 @@ import com.amap.api.maps.model.LatLng
 import com.amap.api.maps.model.MarkerOptions
 import com.amap.api.maps.model.PolylineOptions
 import com.sdevprem.runtrack.R
+import com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint
 import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.domain.tracking.model.PathPoint
 import com.sdevprem.runtrack.domain.tracking.model.firstLocationPoint
@@ -46,6 +47,8 @@ class AmapProvider(private val context: Context) : MapProvider {
         modifier: Modifier,
         pathPoints: List<PathPoint>,
         isRunningFinished: Boolean,
+        annotations: List<RunAiAnnotationPoint>,
+        highlightLocation: LocationInfo?,
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
@@ -118,7 +121,9 @@ class AmapProvider(private val context: Context) : MapProvider {
                     isRunningFinished,
                     largeLocationIconSize,
                     smallLocationIconSize,
-                    flagSize
+                    flagSize,
+                    annotations,
+                    highlightLocation
                 )
             }
         }
@@ -195,7 +200,9 @@ class AmapProvider(private val context: Context) : MapProvider {
         isRunningFinished: Boolean,
         largeLocationIconSize: Int,
         smallLocationIconSize: Int,
-        flagSize: Int
+        flagSize: Int,
+        annotations: List<RunAiAnnotationPoint>,
+        highlightLocation: LocationInfo?
     ) {
         // Add start marker
         firstLocationPoint?.let { startPoint ->
@@ -254,6 +261,35 @@ class AmapProvider(private val context: Context) : MapProvider {
                         .icon(smallIcon)
                 )
             }
+        }
+
+        val annotationIcon = AmapUtils.bitmapDescriptorFromVector(
+            context = context,
+            vectorResId = R.drawable.ic_circle_hollow,
+            tint = md_theme_light_primary.toArgb(),
+            sizeInPx = smallLocationIconSize
+        )
+        annotations.forEach { annotation ->
+            map.addMarker(
+                MarkerOptions()
+                    .position(LatLng(annotation.latitude, annotation.longitude))
+                    .icon(annotationIcon)
+                    .title(annotation.text)
+            )
+        }
+
+        highlightLocation?.let { location ->
+            val highlightIcon = AmapUtils.bitmapDescriptorFromVector(
+                context = context,
+                vectorResId = R.drawable.ic_circle,
+                tint = md_theme_light_primary.toArgb(),
+                sizeInPx = smallLocationIconSize
+            )
+            map.addMarker(
+                MarkerOptions()
+                    .position(AmapUtils.toAmapLatLng(location))
+                    .icon(highlightIcon)
+            )
         }
     }
 

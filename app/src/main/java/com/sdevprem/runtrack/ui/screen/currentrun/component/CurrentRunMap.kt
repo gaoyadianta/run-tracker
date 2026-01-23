@@ -22,6 +22,8 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import com.sdevprem.runtrack.domain.tracking.model.PathPoint
+import com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint
+import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.ui.common.map.MapProviderFactory
 
 @Composable
@@ -29,6 +31,8 @@ fun Map(
     modifier: Modifier = Modifier,
     pathPoints: List<PathPoint>,
     isRunningFinished: Boolean,
+    annotations: List<RunAiAnnotationPoint> = emptyList(),
+    highlightLocation: LocationInfo? = null,
     onSnapshot: (Bitmap) -> Unit
 ) {
     var mapSize by remember { mutableStateOf(Size(0f, 0f)) }
@@ -54,6 +58,8 @@ fun Map(
             modifier = Modifier.fillMaxSize(),
             pathPoints = pathPoints,
             isRunningFinished = isRunningFinished,
+            annotations = annotations,
+            highlightLocation = highlightLocation,
             mapCenter = mapCenter,
             mapSize = mapSize,
             onMapLoaded = { isMapLoaded = true },

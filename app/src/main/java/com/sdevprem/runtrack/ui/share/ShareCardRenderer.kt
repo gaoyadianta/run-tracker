@@ -19,6 +19,7 @@ import com.sdevprem.runtrack.common.utils.RunUtils
 import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
 import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
+import com.sdevprem.runtrack.ui.share.ShareTarget
 import java.util.Locale
 import kotlin.math.max
 
@@ -32,15 +33,17 @@ object ShareCardRenderer {
         context: Context,
         run: Run,
         oneLiner: String?,
-        summary: String?
+        summary: String?,
+        target: ShareTarget
     ): Bitmap {
-        val width = 1080
-        val height = 1440
+        val width = target.width
+        val height = target.height
+        val scale = if (target == ShareTarget.XHS) 1.08f else 1f
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE)
 
-        val mapHeight = (height * 0.52f).toInt()
+        val mapHeight = (height * if (target == ShareTarget.XHS) 0.5f else 0.52f).toInt()
         val mapBitmap = scaleToFill(run.img, width, mapHeight)
         canvas.drawBitmap(mapBitmap, 0f, 0f, null)
         drawGradientOverlay(
@@ -68,7 +71,7 @@ object ShareCardRenderer {
             showMarkers = true
         )
 
-        val padding = dp(context, 32f)
+        val padding = dp(context, 32f * scale)
         var cursorY = mapHeight + dp(context, 24f)
 
         drawPill(
@@ -81,7 +84,7 @@ object ShareCardRenderer {
             ),
             color = accentColor
         )
-        val titlePaint = textPaint(context, 30f, true, Color.WHITE)
+        val titlePaint = textPaint(context, 30f * scale, true, Color.WHITE)
         canvas.drawText("AI Story", padding + dp(context, 16f), cursorY - dp(context, 8f), titlePaint)
         cursorY += dp(context, 28f)
 
@@ -92,7 +95,7 @@ object ShareCardRenderer {
             padding,
             cursorY,
             width - padding * 2,
-            textPaint(context, 38f, true, Color.BLACK)
+            textPaint(context, 38f * scale, true, Color.BLACK)
         ) + dp(context, 12f)
 
         val summaryText = summary?.lineSequence()?.take(2)?.joinToString(" ")?.trim()
@@ -103,10 +106,10 @@ object ShareCardRenderer {
             padding,
             cursorY,
             width - padding * 2,
-            textPaint(context, 26f, false, Color.DKGRAY)
+            textPaint(context, 26f * scale, false, Color.DKGRAY)
         ) + dp(context, 20f)
 
-        val statPaint = textPaint(context, 28f, false, Color.BLACK)
+        val statPaint = textPaint(context, 28f * scale, false, Color.BLACK)
         val distanceKm = String.format(Locale.US, "%.2f km", run.distanceInMeters / 1000f)
         val duration = DateTimeUtils.getFormattedStopwatchTime(run.durationInMillis)
         val pace = RunUtils.formatPace(RunUtils.convertSpeedToPace(run.avgSpeedInKMH))
@@ -116,8 +119,9 @@ object ShareCardRenderer {
         cursorY += dp(context, 36f)
         drawChip(canvas, padding, cursorY, "Avg pace", "$pace/km", statPaint, accentColor)
 
-        val footerPaint = textPaint(context, 22f, false, accentDark)
-        canvas.drawText("RunMate", padding, height - dp(context, 24f), footerPaint)
+        val footerPaint = textPaint(context, 22f * scale, false, accentDark)
+        val footerText = if (target == ShareTarget.XHS) "RunMate · 小红书" else "RunMate · WeChat"
+        canvas.drawText(footerText, padding, height - dp(context, 24f), footerPaint)
 
         return bitmap
     }
@@ -125,10 +129,12 @@ object ShareCardRenderer {
     fun renderQuoteCard(
         context: Context,
         run: Run,
-        quote: String
+        quote: String,
+        target: ShareTarget
     ): Bitmap {
-        val width = 1080
-        val height = 1600
+        val width = target.width
+        val height = if (target == ShareTarget.XHS) 1920 else 1600
+        val scale = if (target == ShareTarget.XHS) 1.1f else 1f
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val mapBitmap = scaleToFill(run.img, width, height)
@@ -160,8 +166,8 @@ object ShareCardRenderer {
             showMarkers = true
         )
 
-        val padding = dp(context, 56f)
-        val textPaint = textPaint(context, 46f, true, Color.WHITE)
+        val padding = dp(context, 56f * scale)
+        val textPaint = textPaint(context, 46f * scale, true, Color.WHITE)
         drawWrappedText(
             canvas,
             quote,
@@ -172,9 +178,9 @@ object ShareCardRenderer {
             center = true
         )
 
-        val footerPaint = textPaint(context, 22f, false, Color.LTGRAY)
+        val footerPaint = textPaint(context, 22f * scale, false, Color.LTGRAY)
         canvas.drawText(
-            "RunMate",
+            if (target == ShareTarget.XHS) "RunMate · 小红书" else "RunMate · WeChat",
             padding,
             height - dp(context, 28f),
             footerPaint
@@ -186,10 +192,12 @@ object ShareCardRenderer {
     fun renderCompareCard(
         context: Context,
         run: Run,
-        compareRun: Run?
+        compareRun: Run?,
+        target: ShareTarget
     ): Bitmap {
-        val width = 1080
-        val height = 1440
+        val width = target.width
+        val height = target.height
+        val scale = if (target == ShareTarget.XHS) 1.06f else 1f
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE)
@@ -203,20 +211,20 @@ object ShareCardRenderer {
             Color.WHITE
         )
 
-        val padding = dp(context, 32f)
+        val padding = dp(context, 32f * scale)
         var cursorY = dp(context, 60f)
 
-        val titlePaint = textPaint(context, 42f, true, accentDark)
+        val titlePaint = textPaint(context, 42f * scale, true, accentDark)
         canvas.drawText("Run Comparison", padding, cursorY, titlePaint)
         cursorY += dp(context, 40f)
 
-        val statsPaint = textPaint(context, 28f, false, Color.DKGRAY)
+        val statsPaint = textPaint(context, 28f * scale, false, Color.DKGRAY)
         val currentPace = RunUtils.convertSpeedToPace(run.avgSpeedInKMH)
         val currentPaceLabel = RunUtils.formatPace(currentPace)
         val currentDistance = String.format(Locale.US, "%.2f km", run.distanceInMeters / 1000f)
         val currentDuration = DateTimeUtils.getFormattedStopwatchTime(run.durationInMillis)
 
-        canvas.drawText("Current Run", padding, cursorY, textPaint(context, 28f, true, accentDark))
+        canvas.drawText("Current Run", padding, cursorY, textPaint(context, 28f * scale, true, accentDark))
         cursorY += dp(context, 28f)
         drawChip(canvas, padding, cursorY, "Distance", currentDistance, statsPaint, accentColor)
         cursorY += dp(context, 34f)
@@ -230,14 +238,14 @@ object ShareCardRenderer {
                 "No comparable run found yet.",
                 padding,
                 cursorY,
-                textPaint(context, 26f, false, Color.GRAY)
+                textPaint(context, 26f * scale, false, Color.GRAY)
             )
         } else {
             val comparePace = RunUtils.convertSpeedToPace(compareRun.avgSpeedInKMH)
             val comparePaceLabel = RunUtils.formatPace(comparePace)
             val compareDistance = String.format(Locale.US, "%.2f km", compareRun.distanceInMeters / 1000f)
             val compareDuration = DateTimeUtils.getFormattedStopwatchTime(compareRun.durationInMillis)
-            canvas.drawText("Previous Run", padding, cursorY, textPaint(context, 28f, true, accentDark))
+            canvas.drawText("Previous Run", padding, cursorY, textPaint(context, 28f * scale, true, accentDark))
             cursorY += dp(context, 28f)
             drawChip(canvas, padding, cursorY, "Distance", compareDistance, statsPaint, accentColor)
             cursorY += dp(context, 34f)
@@ -248,11 +256,12 @@ object ShareCardRenderer {
 
             val paceDelta = comparePace - currentPace
             val deltaLabel = formatPaceDelta(paceDelta)
-            canvas.drawText(deltaLabel, padding, cursorY, textPaint(context, 28f, true, accentDark))
+            canvas.drawText(deltaLabel, padding, cursorY, textPaint(context, 28f * scale, true, accentDark))
         }
 
-        val footerPaint = textPaint(context, 22f, false, accentDark)
-        canvas.drawText("RunMate", padding, height - dp(context, 24f), footerPaint)
+        val footerPaint = textPaint(context, 22f * scale, false, accentDark)
+        val footerText = if (target == ShareTarget.XHS) "RunMate · 小红书" else "RunMate · WeChat"
+        canvas.drawText(footerText, padding, height - dp(context, 24f), footerPaint)
 
         return bitmap
     }

@@ -3,6 +3,7 @@ package com.sdevprem.runtrack.ui.screen.rundetail
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.sdevprem.runtrack.common.utils.RunAiAnnotationCodec
 import com.sdevprem.runtrack.common.utils.RunMetricsCodec
 import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
@@ -62,6 +63,8 @@ class RunDetailViewModel @Inject constructor(
                 )
             } ?: RunMetricsData()
 
+            val annotations = RunAiAnnotationCodec.decode(detail.traceAnnotationsJson ?: "")
+
             RunDetailUiState(
                 isLoading = false,
                 run = detail.run,
@@ -69,6 +72,7 @@ class RunDetailViewModel @Inject constructor(
                 summary = detail.summary,
                 pathPoints = RouteEncodingUtils.decodeToPathPoints(detail.run.routePoints),
                 metrics = metrics,
+                aiAnnotations = annotations,
                 compareRun = compare
             )
         }

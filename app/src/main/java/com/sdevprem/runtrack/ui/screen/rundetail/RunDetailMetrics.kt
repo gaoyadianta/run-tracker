@@ -13,6 +13,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
 import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
@@ -35,6 +37,10 @@ import com.patrykandpatrick.vico.core.axis.AxisPosition
 import com.patrykandpatrick.vico.core.axis.formatter.AxisValueFormatter
 import com.patrykandpatrick.vico.core.chart.DefaultPointConnector
 import com.patrykandpatrick.vico.core.chart.layout.HorizontalLayout
+import com.patrykandpatrick.vico.core.component.marker.MarkerComponent
+import com.patrykandpatrick.vico.core.component.shape.ShapeComponent
+import com.patrykandpatrick.vico.core.component.shape.Shapes
+import com.patrykandpatrick.vico.core.component.text.TextComponent
 import com.patrykandpatrick.vico.core.component.shape.shader.DynamicShaders
 import com.patrykandpatrick.vico.core.model.CartesianChartModelProducer
 import com.patrykandpatrick.vico.core.model.ExtraStore
@@ -51,6 +57,8 @@ import java.util.Locale
 @Composable
 fun RunMetricsSection(
     metrics: RunMetricsData,
+    highlightTimeMs: Long,
+    onHighlightTimeChange: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val tabs = listOf("Pace", "Heart Rate", "Elevation")
@@ -95,13 +103,30 @@ fun RunMetricsSection(
                 )
             } else {
                 val isPace = selectedTab == 0
+                val times = series.map { it.timeOffsetMs }
+                val lastTime = times.lastOrNull()?.coerceAtLeast(1L) ?: 1L
+                val highlightIndex = closestIndex(times, highlightTimeMs)
+
                 RunMetricsChart(
                     points = smoothSeries(series, windowSize = if (selectedTab == 2) 5 else 3),
                     unitLabel = unitLabel,
                     invert = isPace,
+                    highlightIndex = highlightIndex,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Sync map: ${formatTimeOffset(highlightTimeMs)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Slider(
+                    value = highlightTimeMs.coerceIn(0L, lastTime).toFloat(),
+                    valueRange = 0f..lastTime.toFloat(),
+                    onValueChange = { onHighlightTimeChange(it.toLong()) }
                 )
             }
         }
@@ -118,6 +143,7 @@ private fun RunMetricsChart(
     points: List<MetricPoint>,
     unitLabel: String,
     invert: Boolean,
+    highlightIndex: Int?,
     modifier: Modifier = Modifier
 ) {
     val extraStoreKey = remember { ExtraStore.Key<List<Long>>() }
@@ -126,6 +152,19 @@ private fun RunMetricsChart(
     val values = remember(points) { points.map { it.value } }
     val minValue = remember(values) { values.minOrNull() ?: 0f }
     val maxValue = remember(values) { values.maxOrNull() ?: 0f }
+    val marker = remember(primaryColor) {
+        MarkerComponent(
+            indicator = ShapeComponent(
+                shape = Shapes.pillShape,
+                color = primaryColor.toArgb()
+            ),
+            label = TextComponent.build { textSizeSp = 0f }
+        )
+    }
+    val markers = remember(highlightIndex, marker) {
+        if (highlightIndex == null) emptyMap()
+        else mapOf(highlightIndex.toFloat() to marker)
+    }
 
     LaunchedEffect(points, unitLabel, invert) {
         withContext(Dispatchers.Default) {
@@ -168,7 +207,8 @@ private fun RunMetricsChart(
                     AxisItemPlacer.Horizontal.default(addExtremeLabelPadding = true)
                 },
                 guideline = null
-            )
+            ),
+            persistentMarkers = markers
         ),
         modelProducer = modelProducer,
         modifier = modifier,
@@ -288,4 +328,18 @@ private fun smoothSeries(
         val average = points.subList(start, end + 1).map { it.value }.average().toFloat()
         point.copy(value = average)
     }
+}
+
+private fun closestIndex(times: List<Long>, target: Long): Int? {
+    if (times.isEmpty()) return null
+    var bestIndex = 0
+    var bestDiff = Long.MAX_VALUE
+    times.forEachIndexed { index, time ->
+        val diff = kotlin.math.abs(time - target)
+        if (diff < bestDiff) {
+            bestDiff = diff
+            bestIndex = index
+        }
+    }
+    return bestIndex
 }

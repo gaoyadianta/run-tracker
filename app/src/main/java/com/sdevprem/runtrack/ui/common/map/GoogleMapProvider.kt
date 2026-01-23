@@ -34,6 +34,7 @@ import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberMarkerState
 import com.sdevprem.runtrack.R
 import com.sdevprem.runtrack.common.extension.toLatLng
+import com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint
 import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.domain.tracking.model.PathPoint
 import com.sdevprem.runtrack.domain.tracking.model.firstLocationPoint
@@ -51,6 +52,8 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
         modifier: Modifier,
         pathPoints: List<PathPoint>,
         isRunningFinished: Boolean,
+        annotations: List<RunAiAnnotationPoint>,
+        highlightLocation: LocationInfo?,
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
@@ -84,7 +87,12 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
             cameraPositionState = cameraPositionState,
             onMapLoaded = onMapLoaded,
         ) {
-            DrawPathPoints(pathPoints = pathPoints, isRunningFinished = isRunningFinished)
+            DrawPathPoints(
+                pathPoints = pathPoints,
+                isRunningFinished = isRunningFinished,
+                annotations = annotations,
+                highlightLocation = highlightLocation
+            )
 
             TakeScreenShot(
                 take = isRunningFinished,
@@ -126,6 +134,8 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
     private fun DrawPathPoints(
         pathPoints: List<PathPoint>,
         isRunningFinished: Boolean,
+        annotations: List<RunAiAnnotationPoint>,
+        highlightLocation: LocationInfo?
     ) {
         val context = LocalContext.current
         val lastMarkerState = rememberMarkerState()
@@ -141,6 +151,8 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
         val smallLocationIconSize = remember { with(density) { 16.dp.toPx().toInt() } }
         val flagSize = remember { with(density) { 32.dp.toPx().toInt() } }
         val flagOffset = remember { Offset(0.5f, 0.8f) }
+        val annotationIconSize = remember { with(density) { 20.dp.toPx().toInt() } }
+        val highlightIconSize = remember { with(density) { 18.dp.toPx().toInt() } }
 
         LaunchedEffect(key1 = lastLocationPoint) {
             pathPoints.lasLocationPoint()?.let {
@@ -227,6 +239,44 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
                 icon = firstLocationIcon,
                 state = rememberMarkerState(position = it.locationInfo.toLatLng()),
                 anchor = flagOffset,
+            )
+        }
+
+        val annotationIcon = remember {
+            GoogleMapUtils.bitmapDescriptorFromVector(
+                context = context,
+                vectorResId = R.drawable.ic_circle_hollow,
+                tint = md_theme_light_primary.toArgb(),
+                sizeInPx = annotationIconSize
+            )
+        }
+        annotations.forEach { annotation ->
+            Marker(
+                icon = annotationIcon,
+                state = rememberMarkerState(
+                    position = com.google.android.gms.maps.model.LatLng(
+                        annotation.latitude,
+                        annotation.longitude
+                    )
+                ),
+                title = annotation.text,
+                anchor = Offset(0.5f, 0.5f)
+            )
+        }
+
+        highlightLocation?.let { location ->
+            val highlightIcon = remember {
+                GoogleMapUtils.bitmapDescriptorFromVector(
+                    context = context,
+                    vectorResId = R.drawable.ic_circle,
+                    tint = md_theme_light_primary.toArgb(),
+                    sizeInPx = highlightIconSize
+                )
+            }
+            Marker(
+                icon = highlightIcon,
+                state = rememberMarkerState(position = location.toLatLng()),
+                anchor = Offset(0.5f, 0.5f)
             )
         }
     }

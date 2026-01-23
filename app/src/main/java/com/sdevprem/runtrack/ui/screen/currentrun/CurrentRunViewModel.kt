@@ -10,10 +10,13 @@ import com.sdevprem.runtrack.ai.model.RunningState
 import com.sdevprem.runtrack.ai.model.IntegratedRunState
 import com.sdevprem.runtrack.ai.model.AIConnectionState
 import com.sdevprem.runtrack.ai.summary.LocalRunSummaryGenerator
+import com.sdevprem.runtrack.ai.summary.RunAiAnnotationGenerator
+import com.sdevprem.runtrack.common.utils.RunAiAnnotationCodec
 import com.sdevprem.runtrack.common.utils.RunMetricsCalculator
 import com.sdevprem.runtrack.common.utils.RunMetricsCodec
 import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
+import com.sdevprem.runtrack.data.model.RunAiArtifact
 import com.sdevprem.runtrack.data.model.RunMetricsEntity
 import com.sdevprem.runtrack.data.repository.AppRepository
 import com.sdevprem.runtrack.di.ApplicationScope
@@ -46,6 +49,7 @@ class CurrentRunViewModel @Inject constructor(
     val batteryOptimizationManager: com.sdevprem.runtrack.background.tracking.battery.BatteryOptimizationManager,
     val aiCompanionManager: AIRunningCompanionManager,
     private val runSummaryGenerator: LocalRunSummaryGenerator,
+    private val runAiAnnotationGenerator: RunAiAnnotationGenerator,
     @ApplicationScope
     private val appCoroutineScope: CoroutineScope,
     @IoDispatcher
@@ -289,8 +293,9 @@ class CurrentRunViewModel @Inject constructor(
         }
 
         try {
+            val pathPoints = currentRunStateWithCalories.value.currentRunState.pathPoints
             val metrics = RunMetricsCalculator.calculate(
-                pathPoints = currentRunStateWithCalories.value.currentRunState.pathPoints,
+                pathPoints = pathPoints,
                 totalDurationMs = runningDurationInMillis.value
             )
             repository.upsertRunMetrics(
@@ -302,6 +307,23 @@ class CurrentRunViewModel @Inject constructor(
                     splits = RunMetricsCodec.encodeSplits(metrics.splits)
                 )
             )
+
+            val annotations = runAiAnnotationGenerator.generate(
+                metrics = metrics,
+                pathPoints = pathPoints,
+                totalDurationMs = runningDurationInMillis.value
+            )
+            val encodedAnnotations = RunAiAnnotationCodec.encode(annotations)
+            val existing = repository.getRunAiArtifact(runId)
+            if (!encodedAnnotations.isNullOrBlank()) {
+                repository.upsertRunAiArtifact(
+                    existing?.copy(traceAnnotationsJson = encodedAnnotations)
+                        ?: RunAiArtifact(
+                            runId = runId,
+                            traceAnnotationsJson = encodedAnnotations
+                        )
+                )
+            }
         } catch (e: Exception) {
             Timber.w(e, "Failed to generate run metrics")
         }

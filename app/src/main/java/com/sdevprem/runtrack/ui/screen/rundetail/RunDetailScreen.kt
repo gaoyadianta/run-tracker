@@ -19,6 +19,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -43,13 +44,16 @@ import com.sdevprem.runtrack.R
 import com.sdevprem.runtrack.common.extension.getDisplayDate
 import com.sdevprem.runtrack.common.utils.DateTimeUtils
 import com.sdevprem.runtrack.common.utils.RunUtils
+import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.ui.share.ShareCardRenderer
 import com.sdevprem.runtrack.ui.share.ShareImageUtils
+import com.sdevprem.runtrack.ui.share.ShareTarget
 import com.sdevprem.runtrack.ui.screen.currentrun.component.Map as RunRouteMap
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
 
 @Composable
 fun RunDetailScreen(
@@ -60,6 +64,22 @@ fun RunDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    var highlightTimeMs by remember { mutableStateOf(0L) }
+    var shareTarget by remember { mutableStateOf(ShareTarget.WECHAT) }
+
+    LaunchedEffect(state.metrics) {
+        if (highlightTimeMs == 0L) {
+            val lastTime = state.metrics.paceSeries.lastOrNull()?.timeOffsetMs
+                ?: state.metrics.elevationSeries.lastOrNull()?.timeOffsetMs
+                ?: 0L
+            highlightTimeMs = lastTime
+        }
+    }
+
+    val highlightLocation = remember(state.pathPoints, highlightTimeMs, state.run) {
+        val duration = state.run?.durationInMillis ?: 0L
+        findLocationForTime(state.pathPoints, highlightTimeMs, duration)
+    }
 
     Scaffold(
         topBar = {
@@ -96,6 +116,8 @@ fun RunDetailScreen(
                             modifier = Modifier.fillMaxSize(),
                             pathPoints = state.pathPoints,
                             isRunningFinished = true,
+                            annotations = state.aiAnnotations,
+                            highlightLocation = highlightLocation,
                             onSnapshot = {}
                         )
                     }
@@ -176,7 +198,11 @@ fun RunDetailScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                RunMetricsSection(metrics = state.metrics)
+                RunMetricsSection(
+                    metrics = state.metrics,
+                    highlightTimeMs = highlightTimeMs,
+                    onHighlightTimeChange = { highlightTimeMs = it }
+                )
 
                 Spacer(modifier = Modifier.height(16.dp))
 
@@ -184,6 +210,16 @@ fun RunDetailScreen(
                     text = "Share",
                     style = MaterialTheme.typography.titleMedium
                 )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ShareTarget.values().forEach { target ->
+                        FilterChip(
+                            selected = shareTarget == target,
+                            onClick = { shareTarget = target },
+                            label = { Text(text = target.label) }
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -197,12 +233,13 @@ fun RunDetailScreen(
                                     context = context,
                                     run = run,
                                     oneLiner = state.oneLiner,
-                                    summary = state.summary
+                                    summary = state.summary,
+                                    target = shareTarget
                                 )
                                 ShareImageUtils.shareBitmap(
                                     context = context,
                                     bitmap = bitmap,
-                                    name = "run_story_${run.id}.png",
+                                    name = "run_story_${run.id}_${shareTarget.label}.png",
                                     title = "Share Run Story"
                                 )
                             }
@@ -217,12 +254,13 @@ fun RunDetailScreen(
                                 val bitmap = ShareCardRenderer.renderQuoteCard(
                                     context = context,
                                     run = run,
-                                    quote = state.oneLiner ?: "Keep moving."
+                                    quote = state.oneLiner ?: "Keep moving.",
+                                    target = shareTarget
                                 )
                                 ShareImageUtils.shareBitmap(
                                     context = context,
                                     bitmap = bitmap,
-                                    name = "run_quote_${run.id}.png",
+                                    name = "run_quote_${run.id}_${shareTarget.label}.png",
                                     title = "Share Run Quote"
                                 )
                             }
@@ -237,12 +275,13 @@ fun RunDetailScreen(
                                 val bitmap = ShareCardRenderer.renderCompareCard(
                                     context = context,
                                     run = run,
-                                    compareRun = state.compareRun
+                                    compareRun = state.compareRun,
+                                    target = shareTarget
                                 )
                                 ShareImageUtils.shareBitmap(
                                     context = context,
                                     bitmap = bitmap,
-                                    name = "run_compare_${run.id}.png",
+                                    name = "run_compare_${run.id}_${shareTarget.label}.png",
                                     title = "Share Run Compare"
                                 )
                             }
@@ -311,4 +350,37 @@ private fun RunDetailTopBar(
             }
         }
     )
+}
+
+private fun findLocationForTime(
+    pathPoints: List<com.sdevprem.runtrack.domain.tracking.model.PathPoint>,
+    timeOffsetMs: Long,
+    totalDurationMs: Long
+): LocationInfo? {
+    val locations = pathPoints.mapNotNull { it as? com.sdevprem.runtrack.domain.tracking.model.PathPoint.LocationPoint }
+    if (locations.isEmpty()) return null
+    val times = locations.map { it.locationInfo.timeMs }
+    val hasTimes = times.any { it > 0L }
+    val offsets = if (hasTimes) {
+        val base = times.firstOrNull { it > 0L } ?: 0L
+        times.map { if (it > 0L) it - base else 0L }
+    } else {
+        val interval = if (locations.size > 1) {
+            (totalDurationMs / (locations.size - 1)).coerceAtLeast(1000L)
+        } else {
+            1000L
+        }
+        List(locations.size) { index -> interval * index }
+    }
+
+    var bestIndex = 0
+    var bestDiff = Long.MAX_VALUE
+    offsets.forEachIndexed { index, offset ->
+        val diff = kotlin.math.abs(offset - timeOffsetMs)
+        if (diff < bestDiff) {
+            bestDiff = diff
+            bestIndex = index
+        }
+    }
+    return locations[bestIndex].locationInfo
 }

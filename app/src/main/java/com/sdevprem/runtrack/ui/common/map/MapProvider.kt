@@ -5,6 +5,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint
+import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.domain.tracking.model.PathPoint
 
 interface MapProvider {
@@ -14,6 +16,8 @@ interface MapProvider {
         modifier: Modifier,
         pathPoints: List<PathPoint>,
         isRunningFinished: Boolean,
+        annotations: List<RunAiAnnotationPoint>,
+        highlightLocation: LocationInfo?,
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
