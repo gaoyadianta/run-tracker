@@ -56,12 +56,19 @@ abstract class AppModule {
             context,
             RunTrackDB::class.java,
             RUN_TRACK_DB_NAME
-        ).addMigrations(RunTrackDB.MIGRATION_1_2)
-         .build()
+        ).addMigrations(
+            RunTrackDB.MIGRATION_1_2,
+            RunTrackDB.MIGRATION_2_3
+        )
+        .build()
 
         @Singleton
         @Provides
         fun provideRunDao(db: RunTrackDB) = db.getRunDao()
+
+        @Singleton
+        @Provides
+        fun provideRunAiDao(db: RunTrackDB) = db.getRunAiDao()
 
         @Provides
         @Singleton

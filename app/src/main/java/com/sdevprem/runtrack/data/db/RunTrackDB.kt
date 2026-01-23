@@ -5,13 +5,15 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.sdevprem.runtrack.data.db.dao.RunAiDao
 import com.sdevprem.runtrack.data.db.dao.RunDao
 import com.sdevprem.runtrack.data.db.mapper.DBConverters
+import com.sdevprem.runtrack.data.model.RunAiArtifact
 import com.sdevprem.runtrack.data.model.Run
 
 @Database(
-    entities = [Run::class],
-    version = 2,
+    entities = [Run::class, RunAiArtifact::class],
+    version = 3,
     exportSchema = false
 )
 
@@ -30,8 +32,25 @@ abstract class RunTrackDB : RoomDatabase() {
                 )
             }
         }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS run_ai_artifact (" +
+                        "runId INTEGER NOT NULL, " +
+                        "oneLiner TEXT, " +
+                        "summary TEXT, " +
+                        "traceAnnotationsJson TEXT, " +
+                        "updatedAtEpochMs INTEGER NOT NULL, " +
+                        "PRIMARY KEY(runId), " +
+                        "FOREIGN KEY(runId) REFERENCES running_table(id) ON DELETE CASCADE" +
+                        ")"
+                )
+            }
+        }
     }
 
     abstract fun getRunDao(): RunDao
+    abstract fun getRunAiDao(): RunAiDao
 
 }
