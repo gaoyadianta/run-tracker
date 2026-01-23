@@ -23,7 +23,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.onSizeChanged
 import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
 import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
 import com.patrykandpatrick.vico.compose.chart.CartesianChartHost
@@ -53,6 +55,8 @@ import com.sdevprem.runtrack.domain.model.RunSplit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import kotlin.math.roundToInt
+import androidx.compose.foundation.gestures.detectTapGestures
 
 @Composable
 fun RunMetricsSection(
@@ -111,7 +115,9 @@ fun RunMetricsSection(
                     points = smoothSeries(series, windowSize = if (selectedTab == 2) 5 else 3),
                     unitLabel = unitLabel,
                     invert = isPace,
+                    times = times,
                     highlightIndex = highlightIndex,
+                    onPointSelected = onHighlightTimeChange,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
@@ -143,7 +149,9 @@ private fun RunMetricsChart(
     points: List<MetricPoint>,
     unitLabel: String,
     invert: Boolean,
+    times: List<Long>,
     highlightIndex: Int?,
+    onPointSelected: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val extraStoreKey = remember { ExtraStore.Key<List<Long>>() }
@@ -165,6 +173,7 @@ private fun RunMetricsChart(
         if (highlightIndex == null) emptyMap()
         else mapOf(highlightIndex.toFloat() to marker)
     }
+    var chartWidthPx by remember { mutableStateOf(0) }
 
     LaunchedEffect(points, unitLabel, invert) {
         withContext(Dispatchers.Default) {
@@ -183,37 +192,51 @@ private fun RunMetricsChart(
         }
     }
 
-    CartesianChartHost(
-        chart = rememberCartesianChart(
-            rememberLineCartesianLayer(
-                lines = listOf(
-                    rememberLineSpec(
-                        shader = DynamicShaders.color(primaryColor),
-                        pointConnector = DefaultPointConnector(cubicStrength = 0.35f)
+    Box(
+        modifier = modifier
+            .onSizeChanged { chartWidthPx = it.width }
+            .pointerInput(times) {
+                detectTapGestures { offset ->
+                    if (times.isEmpty() || chartWidthPx <= 0) return@detectTapGestures
+                    val ratio = (offset.x / chartWidthPx).coerceIn(0f, 1f)
+                    val index = ((times.size - 1) * ratio).roundToInt()
+                        .coerceIn(0, times.lastIndex)
+                    onPointSelected(times[index])
+                }
+            }
+    ) {
+        CartesianChartHost(
+            chart = rememberCartesianChart(
+                rememberLineCartesianLayer(
+                    lines = listOf(
+                        rememberLineSpec(
+                            shader = DynamicShaders.color(primaryColor),
+                            pointConnector = DefaultPointConnector(cubicStrength = 0.35f)
+                        )
                     )
-                )
+                ),
+                startAxis = rememberStartAxis(
+                    valueFormatter = rememberYAxisFormatter(
+                        unitLabel = unitLabel,
+                        invert = invert,
+                        minValue = minValue,
+                        maxValue = maxValue
+                    )
+                ),
+                bottomAxis = rememberBottomAxis(
+                    valueFormatter = rememberBottomAxisValueFormatter(extraStoreKey),
+                    itemPlacer = remember {
+                        AxisItemPlacer.Horizontal.default(addExtremeLabelPadding = true)
+                    },
+                    guideline = null
+                ),
+                persistentMarkers = markers
             ),
-            startAxis = rememberStartAxis(
-                valueFormatter = rememberYAxisFormatter(
-                    unitLabel = unitLabel,
-                    invert = invert,
-                    minValue = minValue,
-                    maxValue = maxValue
-                )
-            ),
-            bottomAxis = rememberBottomAxis(
-                valueFormatter = rememberBottomAxisValueFormatter(extraStoreKey),
-                itemPlacer = remember {
-                    AxisItemPlacer.Horizontal.default(addExtremeLabelPadding = true)
-                },
-                guideline = null
-            ),
-            persistentMarkers = markers
-        ),
-        modelProducer = modelProducer,
-        modifier = modifier,
-        horizontalLayout = HorizontalLayout.fullWidth()
-    )
+            modelProducer = modelProducer,
+            modifier = Modifier.fillMaxWidth(),
+            horizontalLayout = HorizontalLayout.fullWidth()
+        )
+    }
 }
 
 @Composable

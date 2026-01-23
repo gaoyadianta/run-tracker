@@ -66,6 +66,7 @@ fun RunDetailScreen(
     val coroutineScope = rememberCoroutineScope()
     var highlightTimeMs by remember { mutableStateOf(0L) }
     var shareTarget by remember { mutableStateOf(ShareTarget.WECHAT) }
+    var selectedAnnotation by remember { mutableStateOf<com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint?>(null) }
 
     LaunchedEffect(state.metrics) {
         if (highlightTimeMs == 0L) {
@@ -118,8 +119,29 @@ fun RunDetailScreen(
                             isRunningFinished = true,
                             annotations = state.aiAnnotations,
                             highlightLocation = highlightLocation,
-                            onSnapshot = {}
+                            onSnapshot = {},
+                            onAnnotationClick = { selectedAnnotation = it }
                         )
+                    }
+                }
+
+                selectedAnnotation?.let { annotation ->
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Card(
+                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "AI Note",
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = annotation.text,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                 }
 

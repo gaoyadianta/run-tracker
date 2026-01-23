@@ -70,6 +70,7 @@ object ShareCardRenderer {
             stroke = dp(context, 4f),
             showMarkers = true
         )
+        drawPlatformBadge(canvas, context, target, width, dp(context, 16f))
 
         val padding = dp(context, 32f * scale)
         var cursorY = mapHeight + dp(context, 24f)
@@ -165,6 +166,7 @@ object ShareCardRenderer {
             alpha = 200,
             showMarkers = true
         )
+        drawPlatformBadge(canvas, context, target, width, dp(context, 20f))
 
         val padding = dp(context, 56f * scale)
         val textPaint = textPaint(context, 46f * scale, true, Color.WHITE)
@@ -210,6 +212,7 @@ object ShareCardRenderer {
             accentLight,
             Color.WHITE
         )
+        drawPlatformBadge(canvas, context, target, width, dp(context, 16f))
 
         val padding = dp(context, 32f * scale)
         var cursorY = dp(context, 60f)
@@ -433,6 +436,29 @@ object ShareCardRenderer {
         }
         canvas.drawRoundRect(rect, 18f, 18f, paint)
         canvas.drawText(text, x + chipPadding, y - chipPadding / 2, textPaint)
+    }
+
+    private fun drawPlatformBadge(
+        canvas: Canvas,
+        context: Context,
+        target: ShareTarget,
+        width: Int,
+        topPadding: Float
+    ) {
+        val label = if (target == ShareTarget.XHS) "小红书" else "WeChat"
+        val badgePaint = textPaint(context, 22f, true, Color.WHITE)
+        val textWidth = badgePaint.measureText(label)
+        val badgePadding = dp(context, 10f)
+        val rect = RectF(
+            width - textWidth - badgePadding * 2 - dp(context, 24f),
+            topPadding,
+            width - dp(context, 24f),
+            topPadding + dp(context, 32f)
+        )
+        drawPill(canvas, rect, accentDark)
+        val textX = rect.left + (rect.width() - textWidth) / 2f
+        val textY = rect.bottom - dp(context, 8f)
+        canvas.drawText(label, textX, textY, badgePaint)
     }
 
     private fun sp(context: Context, value: Float): Float =

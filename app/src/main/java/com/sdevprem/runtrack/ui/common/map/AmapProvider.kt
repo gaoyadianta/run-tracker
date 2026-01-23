@@ -52,12 +52,15 @@ class AmapProvider(private val context: Context) : MapProvider {
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
-        onSnapshot: (Bitmap) -> Unit
+        onSnapshot: (Bitmap) -> Unit,
+        onAnnotationClick: (RunAiAnnotationPoint) -> Unit
     ) {
         var mapView by remember { mutableStateOf<MapView?>(null) }
         var aMap by remember { mutableStateOf<AMap?>(null) }
         val lifecycle = LocalLifecycleOwner.current.lifecycle
         val density = LocalDensity.current
+        var latestAnnotations by remember { mutableStateOf<List<RunAiAnnotationPoint>>(emptyList()) }
+        latestAnnotations = annotations
         
         val largeLocationIconSize = remember { with(density) { 32.dp.toPx().toInt() } }
         val smallLocationIconSize = remember { with(density) { 16.dp.toPx().toInt() } }
@@ -153,6 +156,15 @@ class AmapProvider(private val context: Context) : MapProvider {
                         mapInstance.uiSettings.isCompassEnabled = true
                         mapInstance.uiSettings.isMyLocationButtonEnabled = false
                         mapInstance.uiSettings.isScaleControlsEnabled = false
+                        mapInstance.setOnMarkerClickListener { marker ->
+                            val match = findClosestAnnotation(marker.position, latestAnnotations)
+                            if (match != null) {
+                                onAnnotationClick(match)
+                                true
+                            } else {
+                                false
+                            }
+                        }
                         
                         onMapLoaded()
                     }
@@ -291,6 +303,26 @@ class AmapProvider(private val context: Context) : MapProvider {
                     .icon(highlightIcon)
             )
         }
+    }
+
+    private fun findClosestAnnotation(
+        position: LatLng,
+        annotations: List<RunAiAnnotationPoint>
+    ): RunAiAnnotationPoint? {
+        if (annotations.isEmpty()) return null
+        val threshold = 0.0006
+        var best: RunAiAnnotationPoint? = null
+        var bestDiff = Double.MAX_VALUE
+        annotations.forEach { annotation ->
+            val dx = annotation.latitude - position.latitude
+            val dy = annotation.longitude - position.longitude
+            val diff = dx * dx + dy * dy
+            if (diff < bestDiff) {
+                bestDiff = diff
+                best = annotation
+            }
+        }
+        return if (bestDiff <= threshold * threshold) best else null
     }
 
     override fun bitmapDescriptorFromVector(

@@ -33,7 +33,8 @@ fun Map(
     isRunningFinished: Boolean,
     annotations: List<RunAiAnnotationPoint> = emptyList(),
     highlightLocation: LocationInfo? = null,
-    onSnapshot: (Bitmap) -> Unit
+    onSnapshot: (Bitmap) -> Unit,
+    onAnnotationClick: (RunAiAnnotationPoint) -> Unit = {}
 ) {
     var mapSize by remember { mutableStateOf(Size(0f, 0f)) }
     var mapCenter by remember { mutableStateOf(Offset(0f, 0f)) }
@@ -63,7 +64,8 @@ fun Map(
             mapCenter = mapCenter,
             mapSize = mapSize,
             onMapLoaded = { isMapLoaded = true },
-            onSnapshot = onSnapshot
+            onSnapshot = onSnapshot,
+            onAnnotationClick = onAnnotationClick
         )
     }
 }

@@ -21,7 +21,8 @@ interface MapProvider {
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
-        onSnapshot: (Bitmap) -> Unit
+        onSnapshot: (Bitmap) -> Unit,
+        onAnnotationClick: (RunAiAnnotationPoint) -> Unit
     )
 
     fun bitmapDescriptorFromVector(

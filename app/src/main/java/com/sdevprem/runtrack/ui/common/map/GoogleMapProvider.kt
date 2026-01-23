@@ -57,7 +57,8 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
-        onSnapshot: (Bitmap) -> Unit
+        onSnapshot: (Bitmap) -> Unit,
+        onAnnotationClick: (RunAiAnnotationPoint) -> Unit
     ) {
         val mapUiSettings = remember {
             MapUiSettings(
@@ -91,7 +92,8 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
                 pathPoints = pathPoints,
                 isRunningFinished = isRunningFinished,
                 annotations = annotations,
-                highlightLocation = highlightLocation
+                highlightLocation = highlightLocation,
+                onAnnotationClick = onAnnotationClick
             )
 
             TakeScreenShot(
@@ -135,7 +137,8 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
         pathPoints: List<PathPoint>,
         isRunningFinished: Boolean,
         annotations: List<RunAiAnnotationPoint>,
-        highlightLocation: LocationInfo?
+        highlightLocation: LocationInfo?,
+        onAnnotationClick: (RunAiAnnotationPoint) -> Unit
     ) {
         val context = LocalContext.current
         val lastMarkerState = rememberMarkerState()
@@ -260,7 +263,11 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
                     )
                 ),
                 title = annotation.text,
-                anchor = Offset(0.5f, 0.5f)
+                anchor = Offset(0.5f, 0.5f),
+                onClick = {
+                    onAnnotationClick(annotation)
+                    true
+                }
             )
         }
 
