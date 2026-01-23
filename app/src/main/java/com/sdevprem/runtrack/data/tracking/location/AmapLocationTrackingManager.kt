@@ -28,7 +28,9 @@ class AmapLocationTrackingManager @Inject constructor(
             val locationTrackingInfo = LocationTrackingInfo(
                 locationInfo = LocationInfo(
                     latitude = location.latitude,
-                    longitude = location.longitude
+                    longitude = location.longitude,
+                    altitudeMeters = location.altitude,
+                    timeMs = location.time
                 ),
                 speedInMS = location.speed // 高德返回的速度单位是m/s
             )

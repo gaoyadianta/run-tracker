@@ -6,14 +6,16 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.sdevprem.runtrack.data.db.dao.RunAiDao
+import com.sdevprem.runtrack.data.db.dao.RunMetricsDao
 import com.sdevprem.runtrack.data.db.dao.RunDao
 import com.sdevprem.runtrack.data.db.mapper.DBConverters
 import com.sdevprem.runtrack.data.model.RunAiArtifact
+import com.sdevprem.runtrack.data.model.RunMetricsEntity
 import com.sdevprem.runtrack.data.model.Run
 
 @Database(
-    entities = [Run::class, RunAiArtifact::class],
-    version = 4,
+    entities = [Run::class, RunAiArtifact::class, RunMetricsEntity::class],
+    version = 5,
     exportSchema = false
 )
 
@@ -56,9 +58,27 @@ abstract class RunTrackDB : RoomDatabase() {
                 )
             }
         }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS run_metrics (" +
+                        "runId INTEGER NOT NULL, " +
+                        "paceSeries TEXT NOT NULL, " +
+                        "heartRateSeries TEXT NOT NULL, " +
+                        "elevationSeries TEXT NOT NULL, " +
+                        "splits TEXT NOT NULL, " +
+                        "updatedAtEpochMs INTEGER NOT NULL, " +
+                        "PRIMARY KEY(runId), " +
+                        "FOREIGN KEY(runId) REFERENCES running_table(id) ON DELETE CASCADE" +
+                        ")"
+                )
+            }
+        }
     }
 
     abstract fun getRunDao(): RunDao
     abstract fun getRunAiDao(): RunAiDao
+    abstract fun getRunMetricsDao(): RunMetricsDao
 
 }

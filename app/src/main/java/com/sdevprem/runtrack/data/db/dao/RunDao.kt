@@ -84,6 +84,19 @@ interface RunDao {
     )
     suspend fun getRunStatsInDateRange(fromDate: Date?, toDate: Date?): List<Run>
 
+    @Query(
+        "SELECT * FROM running_table " +
+            "WHERE id != :runId AND distanceInMeters BETWEEN :minDistance AND :maxDistance " +
+            "ORDER BY ABS(distanceInMeters - :targetDistance) ASC, timestamp DESC " +
+            "LIMIT 1"
+    )
+    suspend fun getComparableRun(
+        runId: Int,
+        targetDistance: Int,
+        minDistance: Int,
+        maxDistance: Int
+    ): Run?
+
 
     //for statistics
     @Query(

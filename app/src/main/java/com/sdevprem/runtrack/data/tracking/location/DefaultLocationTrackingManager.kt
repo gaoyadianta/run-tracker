@@ -29,7 +29,12 @@ class DefaultLocationTrackingManager @Inject constructor(
                 p0.locations.mapNotNull {
                     it?.let {
                         LocationTrackingInfo(
-                            locationInfo = LocationInfo(it.latitude, it.longitude),
+                            locationInfo = LocationInfo(
+                                latitude = it.latitude,
+                                longitude = it.longitude,
+                                altitudeMeters = if (it.hasAltitude()) it.altitude else null,
+                                timeMs = it.time
+                            ),
                             speedInMS = it.speed
                         )
                     }

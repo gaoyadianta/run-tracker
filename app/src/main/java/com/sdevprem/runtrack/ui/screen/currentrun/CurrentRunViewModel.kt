@@ -10,8 +10,11 @@ import com.sdevprem.runtrack.ai.model.RunningState
 import com.sdevprem.runtrack.ai.model.IntegratedRunState
 import com.sdevprem.runtrack.ai.model.AIConnectionState
 import com.sdevprem.runtrack.ai.summary.LocalRunSummaryGenerator
+import com.sdevprem.runtrack.common.utils.RunMetricsCalculator
+import com.sdevprem.runtrack.common.utils.RunMetricsCodec
 import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
+import com.sdevprem.runtrack.data.model.RunMetricsEntity
 import com.sdevprem.runtrack.data.repository.AppRepository
 import com.sdevprem.runtrack.di.ApplicationScope
 import com.sdevprem.runtrack.di.IoDispatcher
@@ -283,6 +286,24 @@ class CurrentRunViewModel @Inject constructor(
             )
         } catch (e: Exception) {
             Timber.w(e, "Failed to generate local run summary")
+        }
+
+        try {
+            val metrics = RunMetricsCalculator.calculate(
+                pathPoints = currentRunStateWithCalories.value.currentRunState.pathPoints,
+                totalDurationMs = runningDurationInMillis.value
+            )
+            repository.upsertRunMetrics(
+                RunMetricsEntity(
+                    runId = runId,
+                    paceSeries = RunMetricsCodec.encodeMetricPoints(metrics.paceSeries),
+                    heartRateSeries = RunMetricsCodec.encodeMetricPoints(metrics.heartRateSeries),
+                    elevationSeries = RunMetricsCodec.encodeMetricPoints(metrics.elevationSeries),
+                    splits = RunMetricsCodec.encodeSplits(metrics.splits)
+                )
+            )
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to generate run metrics")
         }
     }
     

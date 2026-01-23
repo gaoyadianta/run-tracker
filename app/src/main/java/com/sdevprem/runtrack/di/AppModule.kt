@@ -59,7 +59,8 @@ abstract class AppModule {
         ).addMigrations(
             RunTrackDB.MIGRATION_1_2,
             RunTrackDB.MIGRATION_2_3,
-            RunTrackDB.MIGRATION_3_4
+            RunTrackDB.MIGRATION_3_4,
+            RunTrackDB.MIGRATION_4_5
         )
         .build()
 
@@ -70,6 +71,10 @@ abstract class AppModule {
         @Singleton
         @Provides
         fun provideRunAiDao(db: RunTrackDB) = db.getRunAiDao()
+
+        @Singleton
+        @Provides
+        fun provideRunMetricsDao(db: RunTrackDB) = db.getRunMetricsDao()
 
         @Provides
         @Singleton
