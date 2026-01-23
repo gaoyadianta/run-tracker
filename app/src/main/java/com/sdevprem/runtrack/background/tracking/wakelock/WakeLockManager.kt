@@ -26,7 +26,8 @@ class WakeLockManager @Inject constructor(
             PowerManager.PARTIAL_WAKE_LOCK,
             "RunTrack::LocationTracking"
         ).apply {
-            acquire(10 * 60 * 1000L) // 10分钟超时，防止意外情况
+            setReferenceCounted(false)
+            acquire()
             Timber.d("WakeLock acquired")
         }
     }

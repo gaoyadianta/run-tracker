@@ -55,6 +55,7 @@ class TrackingManager @Inject constructor(
     }
 
     private var isFirst = true
+    private var isBackgroundTrackingStarted = false
 
     private val locationCallback = object : LocationTrackingManager.LocationCallback {
 
@@ -132,8 +133,11 @@ class TrackingManager @Inject constructor(
             return
         if (isFirst) {
             postInitialValue()
-            backgroundTrackingManager.startBackgroundTracking()
             isFirst = false
+        }
+        if (!isBackgroundTrackingStarted) {
+            backgroundTrackingManager.startBackgroundTracking()
+            isBackgroundTrackingStarted = true
         }
         // 每次开始跑步都启动步数追踪
         Timber.d("开始启动步数追踪...")
@@ -158,6 +162,7 @@ class TrackingManager @Inject constructor(
         isTracking = false
         locationTrackingManager.removeCallback()
         timeTracker.pauseTimer()
+        stepTrackingManager.stopStepTracking()
         addEmptyPolyLine()
     }
 
@@ -165,6 +170,7 @@ class TrackingManager @Inject constructor(
         pauseTracking()
         isLocationAcquisitionActive = false
         backgroundTrackingManager.stopBackgroundTracking()
+        isBackgroundTrackingStarted = false
         stepTrackingManager.stopStepTracking()
         stepTrackingManager.resetStepTracking()
         timeTracker.stopTimer()

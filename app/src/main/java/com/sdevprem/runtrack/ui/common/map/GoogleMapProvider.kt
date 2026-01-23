@@ -42,6 +42,7 @@ import com.sdevprem.runtrack.ui.common.utils.GoogleMapUtils
 import com.sdevprem.runtrack.ui.theme.RTColor
 import com.sdevprem.runtrack.ui.theme.md_theme_light_primary
 import kotlinx.coroutines.delay
+import kotlin.math.min
 
 class GoogleMapProvider(private val context: Context) : MapProvider {
 
@@ -105,14 +106,18 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
         onSnapshot: (Bitmap) -> Unit
     ) {
         MapEffect(key1 = take) { map ->
-            if (take)
+            if (take) {
+                val snapshotSide = min(mapSize.width, mapSize.height)
+                if (snapshotSide <= 0f) return@MapEffect
+
                 GoogleMapUtils.takeSnapshot(
                     map,
                     pathPoints,
                     mapCenter,
                     onSnapshot,
-                    snapshotSideLength = mapSize.width / 2f
+                    snapshotSideLength = snapshotSide
                 )
+            }
         }
     }
 

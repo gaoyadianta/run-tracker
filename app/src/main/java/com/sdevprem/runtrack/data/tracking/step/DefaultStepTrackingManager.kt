@@ -44,6 +44,7 @@ class DefaultStepTrackingManager @Inject constructor(
     
     private var callback: StepTrackingManager.StepCallback? = null
     private var initialStepCount: Int? = null
+    private var sessionStepsOffset: Int = 0
     private var stepDataBuffer = mutableListOf<Pair<Long, Int>>() // 存储时间戳和对应的步数
     private var isTracking = false
     
@@ -118,13 +119,18 @@ class DefaultStepTrackingManager @Inject constructor(
         if (!isTracking) return
         
         isTracking = false
+        sessionStepsOffset = _stepTrackingInfo.value.totalSteps
+        initialStepCount = null
         sensorManager.unregisterListener(stepSensorListener)
         callback = null
+        stepDataBuffer.clear()
+        _stepTrackingInfo.value = _stepTrackingInfo.value.copy(stepsPerMinute = 0f)
         Timber.d("Step tracking stopped")
     }
     
     override fun resetStepTracking() {
         initialStepCount = null
+        sessionStepsOffset = 0
         stepDataBuffer.clear()
         _stepTrackingInfo.value = StepTrackingInfo()
         Timber.d("Step tracking reset")
@@ -139,11 +145,11 @@ class DefaultStepTrackingManager @Inject constructor(
     
     private fun handleStepCounter(totalSystemSteps: Int) {
         if (initialStepCount == null) {
-            initialStepCount = totalSystemSteps
-            Timber.d("Initial step count set: $totalSystemSteps")
+            initialStepCount = totalSystemSteps - sessionStepsOffset
+            Timber.d("Initial step count set: ${initialStepCount} (system=$totalSystemSteps, offset=$sessionStepsOffset)")
         }
         
-        val sessionSteps = totalSystemSteps - (initialStepCount ?: 0)
+        val sessionSteps = totalSystemSteps - (initialStepCount ?: totalSystemSteps)
         updateStepInfo(sessionSteps)
         Timber.d("Step counter update - System: $totalSystemSteps, Session: $sessionSteps")
     }
