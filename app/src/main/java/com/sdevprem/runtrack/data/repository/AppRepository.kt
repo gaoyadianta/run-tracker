@@ -38,6 +38,8 @@ class AppRepository @Inject constructor(
 
     fun getRunByDescDateWithLimit(limit: Int) = runDao.getRunByDescDateWithLimit(limit)
 
+    fun observeRunDetail(runId: Int) = runDao.observeRunDetail(runId)
+
     suspend fun upsertRunAiArtifact(artifact: RunAiArtifact) =
         runAiDao.upsertRunAiArtifact(artifact)
 

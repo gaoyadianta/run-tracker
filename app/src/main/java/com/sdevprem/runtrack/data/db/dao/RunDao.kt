@@ -7,6 +7,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.sdevprem.runtrack.data.model.Run
+import com.sdevprem.runtrack.data.model.RunDetailWithAi
 import com.sdevprem.runtrack.data.model.RunWithAi
 import kotlinx.coroutines.flow.Flow
 import java.util.Date
@@ -62,6 +63,18 @@ interface RunDao {
 
     @Query("SELECT * FROM running_table ORDER BY timestamp DESC LIMIT :limit")
     fun getRunByDescDateWithLimit(limit: Int): Flow<List<Run>>
+
+    @Query(
+        "SELECT running_table.*, " +
+            "run_ai_artifact.oneLiner AS oneLiner, " +
+            "run_ai_artifact.summary AS summary, " +
+            "run_ai_artifact.traceAnnotationsJson AS traceAnnotationsJson " +
+            "FROM running_table " +
+            "LEFT JOIN run_ai_artifact ON run_ai_artifact.runId = running_table.id " +
+            "WHERE running_table.id = :runId " +
+            "LIMIT 1"
+    )
+    fun observeRunDetail(runId: Int): Flow<RunDetailWithAi?>
 
     @Query(
         "SELECT * FROM running_table WHERE " +
