@@ -94,9 +94,11 @@ fun RunMetricsSection(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             } else {
+                val isPace = selectedTab == 0
                 RunMetricsChart(
-                    points = series,
+                    points = smoothSeries(series, windowSize = if (selectedTab == 2) 5 else 3),
                     unitLabel = unitLabel,
+                    invert = isPace,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(180.dp)
@@ -115,17 +117,27 @@ fun RunMetricsSection(
 private fun RunMetricsChart(
     points: List<MetricPoint>,
     unitLabel: String,
+    invert: Boolean,
     modifier: Modifier = Modifier
 ) {
     val extraStoreKey = remember { ExtraStore.Key<List<Long>>() }
     val modelProducer = remember { CartesianChartModelProducer.build() }
     val primaryColor = MaterialTheme.colorScheme.primary
+    val values = remember(points) { points.map { it.value } }
+    val minValue = remember(values) { values.minOrNull() ?: 0f }
+    val maxValue = remember(values) { values.maxOrNull() ?: 0f }
 
-    LaunchedEffect(points, unitLabel) {
+    LaunchedEffect(points, unitLabel, invert) {
         withContext(Dispatchers.Default) {
             modelProducer.tryRunTransaction {
+                val mappedValues = if (invert) {
+                    val base = minValue + maxValue
+                    points.map { base - it.value }
+                } else {
+                    points.map { it.value }
+                }
                 lineSeries {
-                    series(points.map { it.value })
+                    series(mappedValues)
                     updateExtras { it[extraStoreKey] = points.map { p -> p.timeOffsetMs } }
                 }
             }
@@ -142,7 +154,14 @@ private fun RunMetricsChart(
                     )
                 )
             ),
-            startAxis = rememberStartAxis(),
+            startAxis = rememberStartAxis(
+                valueFormatter = rememberYAxisFormatter(
+                    unitLabel = unitLabel,
+                    invert = invert,
+                    minValue = minValue,
+                    maxValue = maxValue
+                )
+            ),
             bottomAxis = rememberBottomAxis(
                 valueFormatter = rememberBottomAxisValueFormatter(extraStoreKey),
                 itemPlacer = remember {
@@ -167,6 +186,28 @@ private fun rememberBottomAxisValueFormatter(
             formatTimeOffset(times[x.toInt()])
         } else {
             ""
+        }
+    }
+}
+
+@Composable
+private fun rememberYAxisFormatter(
+    unitLabel: String,
+    invert: Boolean,
+    minValue: Float,
+    maxValue: Float
+) = remember(unitLabel, invert, minValue, maxValue) {
+    AxisValueFormatter<AxisPosition.Vertical.Start> { value, _, _ ->
+        val displayValue = if (invert) {
+            val base = minValue + maxValue
+            base - value
+        } else {
+            value
+        }
+        when (unitLabel) {
+            "min/km" -> RunUtils.formatPace(displayValue)
+            "bpm" -> "${displayValue.toInt()} bpm"
+            else -> "${displayValue.toInt()} m"
         }
     }
 }
@@ -232,5 +273,19 @@ private fun SplitRow(
             text = timeLabel,
             style = MaterialTheme.typography.bodyMedium
         )
+    }
+}
+
+private fun smoothSeries(
+    points: List<MetricPoint>,
+    windowSize: Int
+): List<MetricPoint> {
+    if (points.size < 3 || windowSize <= 1) return points
+    val radius = windowSize / 2
+    return points.mapIndexed { index, point ->
+        val start = (index - radius).coerceAtLeast(0)
+        val end = (index + radius).coerceAtMost(points.lastIndex)
+        val average = points.subList(start, end + 1).map { it.value }.average().toFloat()
+        point.copy(value = average)
     }
 }

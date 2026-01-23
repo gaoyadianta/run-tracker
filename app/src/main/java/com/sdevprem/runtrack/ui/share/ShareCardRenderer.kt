@@ -4,18 +4,27 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Rect
+import android.graphics.RectF
+import android.graphics.Shader
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
 import com.sdevprem.runtrack.common.utils.DateTimeUtils
 import com.sdevprem.runtrack.common.utils.RunUtils
+import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
+import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import java.util.Locale
 import kotlin.math.max
 
 object ShareCardRenderer {
+
+    private val accentColor = Color.parseColor("#1B998B")
+    private val accentDark = Color.parseColor("#0F2F2D")
 
     fun renderStoryCard(
         context: Context,
@@ -32,12 +41,40 @@ object ShareCardRenderer {
         val mapHeight = (height * 0.52f).toInt()
         val mapBitmap = scaleToFill(run.img, width, mapHeight)
         canvas.drawBitmap(mapBitmap, 0f, 0f, null)
+        drawGradientOverlay(
+            canvas,
+            0f,
+            mapHeight * 0.55f,
+            width.toFloat(),
+            mapHeight.toFloat(),
+            Color.TRANSPARENT,
+            Color.WHITE
+        )
+
+        val routePoints = RouteEncodingUtils.decodePathPoints(run.routePoints)
+        drawRouteOverlay(
+            canvas = canvas,
+            points = routePoints,
+            bounds = RectF(
+                dp(context, 24f),
+                dp(context, 24f),
+                width - dp(context, 24f),
+                mapHeight - dp(context, 24f)
+            ),
+            color = accentColor,
+            stroke = dp(context, 4f)
+        )
 
         val padding = dp(context, 32f)
         var cursorY = mapHeight + dp(context, 24f)
 
-        val titlePaint = textPaint(context, 48f, true, Color.BLACK)
-        canvas.drawText("AI Run Story", padding, cursorY, titlePaint)
+        drawPill(
+            canvas = canvas,
+            rect = RectF(padding, cursorY - dp(context, 36f), padding + dp(context, 210f), cursorY + dp(context, 4f)),
+            color = accentColor
+        )
+        val titlePaint = textPaint(context, 30f, true, Color.WHITE)
+        canvas.drawText("AI Story", padding + dp(context, 16f), cursorY - dp(context, 8f), titlePaint)
         cursorY += dp(context, 28f)
 
         val subtitle = oneLiner ?: "Your run, captured."
@@ -47,7 +84,7 @@ object ShareCardRenderer {
             padding,
             cursorY,
             width - padding * 2,
-            textPaint(context, 36f, true, Color.DKGRAY)
+            textPaint(context, 38f, true, Color.BLACK)
         ) + dp(context, 12f)
 
         val summaryText = summary?.lineSequence()?.take(2)?.joinToString(" ")?.trim()
@@ -58,20 +95,20 @@ object ShareCardRenderer {
             padding,
             cursorY,
             width - padding * 2,
-            textPaint(context, 28f, false, Color.GRAY)
+            textPaint(context, 26f, false, Color.DKGRAY)
         ) + dp(context, 20f)
 
         val statPaint = textPaint(context, 28f, false, Color.BLACK)
         val distanceKm = String.format(Locale.US, "%.2f km", run.distanceInMeters / 1000f)
         val duration = DateTimeUtils.getFormattedStopwatchTime(run.durationInMillis)
         val pace = RunUtils.formatPace(RunUtils.convertSpeedToPace(run.avgSpeedInKMH))
-        canvas.drawText("Distance: $distanceKm", padding, cursorY, statPaint)
-        cursorY += dp(context, 30f)
-        canvas.drawText("Duration: $duration", padding, cursorY, statPaint)
-        cursorY += dp(context, 30f)
-        canvas.drawText("Avg pace: $pace/km", padding, cursorY, statPaint)
+        drawChip(canvas, padding, cursorY, "Distance", distanceKm, statPaint, accentColor)
+        cursorY += dp(context, 36f)
+        drawChip(canvas, padding, cursorY, "Duration", duration, statPaint, accentColor)
+        cursorY += dp(context, 36f)
+        drawChip(canvas, padding, cursorY, "Avg pace", "$pace/km", statPaint, accentColor)
 
-        val footerPaint = textPaint(context, 22f, false, Color.GRAY)
+        val footerPaint = textPaint(context, 22f, false, accentDark)
         canvas.drawText("RunMate", padding, height - dp(context, 24f), footerPaint)
 
         return bitmap
@@ -89,12 +126,34 @@ object ShareCardRenderer {
         val mapBitmap = scaleToFill(run.img, width, height)
         canvas.drawBitmap(mapBitmap, 0f, 0f, null)
 
-        val overlayPaint = Paint().apply { color = Color.argb(140, 0, 0, 0) }
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), overlayPaint)
+        drawGradientOverlay(
+            canvas,
+            0f,
+            0f,
+            width.toFloat(),
+            height.toFloat(),
+            Color.argb(170, 10, 14, 20),
+            Color.argb(220, 10, 14, 20)
+        )
+
+        val routePoints = RouteEncodingUtils.decodePathPoints(run.routePoints)
+        drawRouteOverlay(
+            canvas = canvas,
+            points = routePoints,
+            bounds = RectF(
+                dp(context, 28f),
+                dp(context, 120f),
+                width - dp(context, 28f),
+                height - dp(context, 120f)
+            ),
+            color = Color.WHITE,
+            stroke = dp(context, 5f),
+            alpha = 180
+        )
 
         val padding = dp(context, 56f)
-        val textPaint = textPaint(context, 48f, true, Color.WHITE)
-        val textHeight = drawWrappedText(
+        val textPaint = textPaint(context, 46f, true, Color.WHITE)
+        drawWrappedText(
             canvas,
             quote,
             padding,
@@ -129,23 +188,23 @@ object ShareCardRenderer {
         val padding = dp(context, 32f)
         var cursorY = dp(context, 60f)
 
-        val titlePaint = textPaint(context, 46f, true, Color.BLACK)
+        val titlePaint = textPaint(context, 44f, true, accentDark)
         canvas.drawText("Run Comparison", padding, cursorY, titlePaint)
         cursorY += dp(context, 40f)
 
-        val statsPaint = textPaint(context, 30f, false, Color.DKGRAY)
+        val statsPaint = textPaint(context, 28f, false, Color.DKGRAY)
         val currentPace = RunUtils.convertSpeedToPace(run.avgSpeedInKMH)
         val currentPaceLabel = RunUtils.formatPace(currentPace)
         val currentDistance = String.format(Locale.US, "%.2f km", run.distanceInMeters / 1000f)
         val currentDuration = DateTimeUtils.getFormattedStopwatchTime(run.durationInMillis)
 
-        canvas.drawText("Current Run", padding, cursorY, textPaint(context, 32f, true, Color.BLACK))
+        canvas.drawText("Current Run", padding, cursorY, textPaint(context, 30f, true, accentDark))
         cursorY += dp(context, 28f)
-        canvas.drawText("Distance: $currentDistance", padding, cursorY, statsPaint)
-        cursorY += dp(context, 26f)
-        canvas.drawText("Duration: $currentDuration", padding, cursorY, statsPaint)
-        cursorY += dp(context, 26f)
-        canvas.drawText("Avg pace: $currentPaceLabel/km", padding, cursorY, statsPaint)
+        drawChip(canvas, padding, cursorY, "Distance", currentDistance, statsPaint, accentColor)
+        cursorY += dp(context, 34f)
+        drawChip(canvas, padding, cursorY, "Duration", currentDuration, statsPaint, accentColor)
+        cursorY += dp(context, 34f)
+        drawChip(canvas, padding, cursorY, "Avg pace", "$currentPaceLabel/km", statsPaint, accentColor)
         cursorY += dp(context, 36f)
 
         if (compareRun == null) {
@@ -153,28 +212,28 @@ object ShareCardRenderer {
                 "No comparable run found yet.",
                 padding,
                 cursorY,
-                textPaint(context, 28f, false, Color.GRAY)
+                textPaint(context, 26f, false, Color.GRAY)
             )
         } else {
             val comparePace = RunUtils.convertSpeedToPace(compareRun.avgSpeedInKMH)
             val comparePaceLabel = RunUtils.formatPace(comparePace)
             val compareDistance = String.format(Locale.US, "%.2f km", compareRun.distanceInMeters / 1000f)
             val compareDuration = DateTimeUtils.getFormattedStopwatchTime(compareRun.durationInMillis)
-            canvas.drawText("Previous Run", padding, cursorY, textPaint(context, 32f, true, Color.BLACK))
+            canvas.drawText("Previous Run", padding, cursorY, textPaint(context, 30f, true, accentDark))
             cursorY += dp(context, 28f)
-            canvas.drawText("Distance: $compareDistance", padding, cursorY, statsPaint)
-            cursorY += dp(context, 26f)
-            canvas.drawText("Duration: $compareDuration", padding, cursorY, statsPaint)
-            cursorY += dp(context, 26f)
-            canvas.drawText("Avg pace: $comparePaceLabel/km", padding, cursorY, statsPaint)
+            drawChip(canvas, padding, cursorY, "Distance", compareDistance, statsPaint, accentColor)
+            cursorY += dp(context, 34f)
+            drawChip(canvas, padding, cursorY, "Duration", compareDuration, statsPaint, accentColor)
+            cursorY += dp(context, 34f)
+            drawChip(canvas, padding, cursorY, "Avg pace", "$comparePaceLabel/km", statsPaint, accentColor)
             cursorY += dp(context, 36f)
 
             val paceDelta = comparePace - currentPace
             val deltaLabel = formatPaceDelta(paceDelta)
-            canvas.drawText(deltaLabel, padding, cursorY, textPaint(context, 30f, true, Color.BLACK))
+            canvas.drawText(deltaLabel, padding, cursorY, textPaint(context, 28f, true, accentDark))
         }
 
-        val footerPaint = textPaint(context, 22f, false, Color.GRAY)
+        val footerPaint = textPaint(context, 22f, false, accentDark)
         canvas.drawText("RunMate", padding, height - dp(context, 24f), footerPaint)
 
         return bitmap
@@ -211,6 +270,107 @@ object ShareCardRenderer {
         layout.draw(canvas)
         canvas.restore()
         return layout.height.toFloat()
+    }
+
+    private fun drawGradientOverlay(
+        canvas: Canvas,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        startColor: Int,
+        endColor: Int
+    ) {
+        val paint = Paint()
+        paint.shader = LinearGradient(
+            left,
+            top,
+            left,
+            bottom,
+            startColor,
+            endColor,
+            Shader.TileMode.CLAMP
+        )
+        canvas.drawRect(left, top, right, bottom, paint)
+    }
+
+    private fun drawRouteOverlay(
+        canvas: Canvas,
+        points: List<LocationInfo>,
+        bounds: RectF,
+        color: Int,
+        stroke: Float,
+        alpha: Int = 220
+    ) {
+        if (points.size < 2) return
+        val latitudes = points.map { it.latitude }
+        val longitudes = points.map { it.longitude }
+        val minLat = latitudes.minOrNull() ?: return
+        val maxLat = latitudes.maxOrNull() ?: return
+        val minLng = longitudes.minOrNull() ?: return
+        val maxLng = longitudes.maxOrNull() ?: return
+
+        val latRange = (maxLat - minLat).takeIf { it > 0 } ?: 0.00001
+        val lngRange = (maxLng - minLng).takeIf { it > 0 } ?: 0.00001
+
+        val path = Path()
+        points.forEachIndexed { index, point ->
+            val x = bounds.left + ((point.longitude - minLng) / lngRange) * bounds.width()
+            val y = bounds.top + ((maxLat - point.latitude) / latRange) * bounds.height()
+            if (index == 0) {
+                path.moveTo(x.toFloat(), y.toFloat())
+            } else {
+                path.lineTo(x.toFloat(), y.toFloat())
+            }
+        }
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            this.color = color
+            this.strokeWidth = stroke
+            this.alpha = alpha
+        }
+        canvas.drawPath(path, paint)
+    }
+
+    private fun drawPill(
+        canvas: Canvas,
+        rect: RectF,
+        color: Int
+    ) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            this.color = color
+        }
+        canvas.drawRoundRect(rect, rect.height() / 2, rect.height() / 2, paint)
+    }
+
+    private fun drawChip(
+        canvas: Canvas,
+        x: Float,
+        y: Float,
+        label: String,
+        value: String,
+        textPaint: TextPaint,
+        color: Int
+    ) {
+        val chipPadding = 12f
+        val text = "$label: $value"
+        val textBounds = Rect()
+        textPaint.getTextBounds(text, 0, text.length, textBounds)
+        val rect = RectF(
+            x,
+            y - textBounds.height() - chipPadding,
+            x + textBounds.width() + chipPadding * 2,
+            y + chipPadding / 2
+        )
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            style = Paint.Style.FILL
+            alpha = 18
+        }
+        canvas.drawRoundRect(rect, 18f, 18f, paint)
+        canvas.drawText(text, x + chipPadding, y - chipPadding / 2, textPaint)
     }
 
     private fun scaleToFill(source: Bitmap, width: Int, height: Int): Bitmap {
