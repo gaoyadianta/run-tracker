@@ -16,7 +16,7 @@ import java.util.Date
 interface RunDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertRun(run: Run)
+    suspend fun insertRun(run: Run): Long
 
     @Delete
     suspend fun deleteRun(run: Run)

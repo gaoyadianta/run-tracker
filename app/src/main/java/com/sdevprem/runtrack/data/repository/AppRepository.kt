@@ -17,7 +17,7 @@ class AppRepository @Inject constructor(
     private val runDao: RunDao,
     private val runAiDao: RunAiDao
 ) {
-    suspend fun insertRun(run: Run) = runDao.insertRun(run)
+    suspend fun insertRun(run: Run): Long = runDao.insertRun(run)
 
     suspend fun deleteRun(run: Run) = runDao.deleteRun(run)
 

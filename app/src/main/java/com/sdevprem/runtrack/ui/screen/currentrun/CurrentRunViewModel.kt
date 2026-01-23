@@ -9,6 +9,7 @@ import com.sdevprem.runtrack.ai.model.RunningContext
 import com.sdevprem.runtrack.ai.model.RunningState
 import com.sdevprem.runtrack.ai.model.IntegratedRunState
 import com.sdevprem.runtrack.ai.model.AIConnectionState
+import com.sdevprem.runtrack.ai.summary.LocalRunSummaryGenerator
 import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
 import com.sdevprem.runtrack.data.repository.AppRepository
@@ -41,6 +42,7 @@ class CurrentRunViewModel @Inject constructor(
     private val repository: AppRepository,
     val batteryOptimizationManager: com.sdevprem.runtrack.background.tracking.battery.BatteryOptimizationManager,
     val aiCompanionManager: AIRunningCompanionManager,
+    private val runSummaryGenerator: LocalRunSummaryGenerator,
     @ApplicationScope
     private val appCoroutineScope: CoroutineScope,
     @IoDispatcher
@@ -271,7 +273,17 @@ class CurrentRunViewModel @Inject constructor(
     }
 
     private fun saveRun(run: Run) = appCoroutineScope.launch(ioDispatcher) {
-        repository.insertRun(run)
+        val runId = repository.insertRun(run).toInt()
+        try {
+            repository.upsertRunAiArtifact(
+                runSummaryGenerator.generate(
+                    runId = runId,
+                    run = run.copy(id = runId)
+                )
+            )
+        } catch (e: Exception) {
+            Timber.w(e, "Failed to generate local run summary")
+        }
     }
     
     // AI陪跑相关方法
