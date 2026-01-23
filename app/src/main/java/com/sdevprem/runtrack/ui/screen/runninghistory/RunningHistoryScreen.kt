@@ -44,6 +44,7 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.sdevprem.runtrack.R
 import com.sdevprem.runtrack.data.model.Run
+import com.sdevprem.runtrack.data.model.RunWithAi
 import com.sdevprem.runtrack.data.utils.RunSortOrder
 import com.sdevprem.runtrack.ui.common.compose.component.DropDownList
 import com.sdevprem.runtrack.ui.common.compose.component.RunInfoDialog
@@ -76,7 +77,7 @@ fun RunningHistoryScreen(
 
 @Composable
 private fun RunningHistoryScreenContent(
-    runItems: LazyPagingItems<Run>,
+    runItems: LazyPagingItems<RunWithAi>,
     onSortOrderSelected: (RunSortOrder) -> Unit,
     onItemClick: (Run) -> Unit,
     onNavIconClick: () -> Unit
@@ -148,7 +149,7 @@ private fun ScreenTopAppBar(
 
 @Composable
 private fun RunningList(
-    runItems: LazyPagingItems<Run>,
+    runItems: LazyPagingItems<RunWithAi>,
     onItemClick: (Run) -> Unit
 ) {
     LazyColumn(
@@ -164,8 +165,12 @@ private fun RunningList(
             )
         }
         else items(runItems.itemCount) {
-            runItems[it]?.let { run ->
-                RunCardItem(run = run, onItemClick = onItemClick)
+            runItems[it]?.let { runWithAi ->
+                RunCardItem(
+                    run = runWithAi.run,
+                    aiOneLiner = runWithAi.oneLiner,
+                    onItemClick = onItemClick
+                )
             }
         }
     }
@@ -174,6 +179,7 @@ private fun RunningList(
 @Composable
 private fun RunCardItem(
     run: Run,
+    aiOneLiner: String?,
     onItemClick: (Run) -> Unit = {}
 ) {
     ElevatedCard(
@@ -184,6 +190,7 @@ private fun RunCardItem(
     ) {
         RunItem(
             run = run,
+            aiOneLiner = aiOneLiner,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
@@ -203,5 +210,8 @@ private fun RunCardItemPreview() {
         )
     }
 
-    RunCardItem(run = runList[0])
+    RunCardItem(
+        run = runList[0],
+        aiOneLiner = "Steady pace today"
+    )
 }

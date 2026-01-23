@@ -7,6 +7,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.sdevprem.runtrack.data.model.Run
+import com.sdevprem.runtrack.data.model.RunWithAi
 import kotlinx.coroutines.flow.Flow
 import java.util.Date
 
@@ -19,20 +20,45 @@ interface RunDao {
     @Delete
     suspend fun deleteRun(run: Run)
 
-    @Query("SELECT * FROM running_table ORDER BY timestamp DESC")
-    fun getAllRunSortByDate(): PagingSource<Int, Run>
+    @Query(
+        "SELECT running_table.*, run_ai_artifact.oneLiner AS oneLiner " +
+            "FROM running_table " +
+            "LEFT JOIN run_ai_artifact ON run_ai_artifact.runId = running_table.id " +
+            "ORDER BY timestamp DESC"
+    )
+    fun getAllRunSortByDate(): PagingSource<Int, RunWithAi>
 
-    @Query("SELECT * FROM running_table ORDER BY durationInMillis DESC")
-    fun getAllRunSortByDuration(): PagingSource<Int, Run>
+    @Query(
+        "SELECT running_table.*, run_ai_artifact.oneLiner AS oneLiner " +
+            "FROM running_table " +
+            "LEFT JOIN run_ai_artifact ON run_ai_artifact.runId = running_table.id " +
+            "ORDER BY durationInMillis DESC"
+    )
+    fun getAllRunSortByDuration(): PagingSource<Int, RunWithAi>
 
-    @Query("SELECT * FROM running_table ORDER BY caloriesBurned DESC")
-    fun getAllRunSortByCaloriesBurned(): PagingSource<Int, Run>
+    @Query(
+        "SELECT running_table.*, run_ai_artifact.oneLiner AS oneLiner " +
+            "FROM running_table " +
+            "LEFT JOIN run_ai_artifact ON run_ai_artifact.runId = running_table.id " +
+            "ORDER BY caloriesBurned DESC"
+    )
+    fun getAllRunSortByCaloriesBurned(): PagingSource<Int, RunWithAi>
 
-    @Query("SELECT * FROM running_table ORDER BY avgSpeedInKMH DESC")
-    fun getAllRunSortByAvgSpeed(): PagingSource<Int, Run>
+    @Query(
+        "SELECT running_table.*, run_ai_artifact.oneLiner AS oneLiner " +
+            "FROM running_table " +
+            "LEFT JOIN run_ai_artifact ON run_ai_artifact.runId = running_table.id " +
+            "ORDER BY avgSpeedInKMH DESC"
+    )
+    fun getAllRunSortByAvgSpeed(): PagingSource<Int, RunWithAi>
 
-    @Query("SELECT * FROM running_table ORDER BY distanceInMeters DESC")
-    fun getAllRunSortByDistance(): PagingSource<Int, Run>
+    @Query(
+        "SELECT running_table.*, run_ai_artifact.oneLiner AS oneLiner " +
+            "FROM running_table " +
+            "LEFT JOIN run_ai_artifact ON run_ai_artifact.runId = running_table.id " +
+            "ORDER BY distanceInMeters DESC"
+    )
+    fun getAllRunSortByDistance(): PagingSource<Int, RunWithAi>
 
     @Query("SELECT * FROM running_table ORDER BY timestamp DESC LIMIT :limit")
     fun getRunByDescDateWithLimit(limit: Int): Flow<List<Run>>

@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -104,6 +105,7 @@ fun RunningStatsItem(
 fun RunItem(
     modifier: Modifier = Modifier,
     run: Run,
+    aiOneLiner: String? = null,
     showTrailingIcon: Boolean = true
 ) {
     Row(
@@ -121,7 +123,8 @@ fun RunItem(
         RunInfo(
             modifier = Modifier
                 .weight(1f),
-            run = run
+            run = run,
+            aiOneLiner = aiOneLiner
         )
         if (showTrailingIcon)
             Icon(
@@ -138,7 +141,8 @@ fun RunItem(
 @Composable
 private fun RunInfo(
     modifier: Modifier = Modifier,
-    run: Run
+    run: Run,
+    aiOneLiner: String?
 ) {
     Column(modifier) {
         Text(
@@ -191,6 +195,18 @@ private fun RunInfo(
                 ),
             )
         }
+        if (!aiOneLiner.isNullOrBlank()) {
+            Spacer(modifier = Modifier.size(8.dp))
+            Text(
+                text = "AI: $aiOneLiner",
+                style = MaterialTheme.typography.labelSmall.copy(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Normal
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 
@@ -207,7 +223,8 @@ private fun RunItemPrev() {
             avgSpeedInKMH = 13.56f,
             distanceInMeters = 10120,
             caloriesBurned = 701
-        )
+        ),
+        aiOneLiner = "Steady pace today"
     )
 }
 
