@@ -13,6 +13,7 @@ import android.graphics.Shader
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import android.util.TypedValue
 import com.sdevprem.runtrack.common.utils.DateTimeUtils
 import com.sdevprem.runtrack.common.utils.RunUtils
 import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
@@ -25,6 +26,7 @@ object ShareCardRenderer {
 
     private val accentColor = Color.parseColor("#1B998B")
     private val accentDark = Color.parseColor("#0F2F2D")
+    private val accentLight = Color.parseColor("#E7F5F3")
 
     fun renderStoryCard(
         context: Context,
@@ -62,7 +64,8 @@ object ShareCardRenderer {
                 mapHeight - dp(context, 24f)
             ),
             color = accentColor,
-            stroke = dp(context, 4f)
+            stroke = dp(context, 4f),
+            showMarkers = true
         )
 
         val padding = dp(context, 32f)
@@ -70,7 +73,12 @@ object ShareCardRenderer {
 
         drawPill(
             canvas = canvas,
-            rect = RectF(padding, cursorY - dp(context, 36f), padding + dp(context, 210f), cursorY + dp(context, 4f)),
+            rect = RectF(
+                padding,
+                cursorY - dp(context, 36f),
+                padding + dp(context, 210f),
+                cursorY + dp(context, 4f)
+            ),
             color = accentColor
         )
         val titlePaint = textPaint(context, 30f, true, Color.WHITE)
@@ -148,7 +156,8 @@ object ShareCardRenderer {
             ),
             color = Color.WHITE,
             stroke = dp(context, 5f),
-            alpha = 180
+            alpha = 200,
+            showMarkers = true
         )
 
         val padding = dp(context, 56f)
@@ -184,11 +193,20 @@ object ShareCardRenderer {
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE)
+        drawGradientOverlay(
+            canvas,
+            0f,
+            0f,
+            width.toFloat(),
+            height.toFloat(),
+            accentLight,
+            Color.WHITE
+        )
 
         val padding = dp(context, 32f)
         var cursorY = dp(context, 60f)
 
-        val titlePaint = textPaint(context, 44f, true, accentDark)
+        val titlePaint = textPaint(context, 42f, true, accentDark)
         canvas.drawText("Run Comparison", padding, cursorY, titlePaint)
         cursorY += dp(context, 40f)
 
@@ -198,7 +216,7 @@ object ShareCardRenderer {
         val currentDistance = String.format(Locale.US, "%.2f km", run.distanceInMeters / 1000f)
         val currentDuration = DateTimeUtils.getFormattedStopwatchTime(run.durationInMillis)
 
-        canvas.drawText("Current Run", padding, cursorY, textPaint(context, 30f, true, accentDark))
+        canvas.drawText("Current Run", padding, cursorY, textPaint(context, 28f, true, accentDark))
         cursorY += dp(context, 28f)
         drawChip(canvas, padding, cursorY, "Distance", currentDistance, statsPaint, accentColor)
         cursorY += dp(context, 34f)
@@ -219,7 +237,7 @@ object ShareCardRenderer {
             val comparePaceLabel = RunUtils.formatPace(comparePace)
             val compareDistance = String.format(Locale.US, "%.2f km", compareRun.distanceInMeters / 1000f)
             val compareDuration = DateTimeUtils.getFormattedStopwatchTime(compareRun.durationInMillis)
-            canvas.drawText("Previous Run", padding, cursorY, textPaint(context, 30f, true, accentDark))
+            canvas.drawText("Previous Run", padding, cursorY, textPaint(context, 28f, true, accentDark))
             cursorY += dp(context, 28f)
             drawChip(canvas, padding, cursorY, "Distance", compareDistance, statsPaint, accentColor)
             cursorY += dp(context, 34f)
@@ -245,7 +263,7 @@ object ShareCardRenderer {
         bold: Boolean,
         color: Int
     ): TextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-        textSize = sizeSp * context.resources.displayMetrics.scaledDensity
+        textSize = sp(context, sizeSp)
         this.color = color
         isFakeBoldText = bold
     }
@@ -300,7 +318,8 @@ object ShareCardRenderer {
         bounds: RectF,
         color: Int,
         stroke: Float,
-        alpha: Int = 220
+        alpha: Int = 220,
+        showMarkers: Boolean = false
     ) {
         if (points.size < 2) return
         val latitudes = points.map { it.latitude }
@@ -331,6 +350,40 @@ object ShareCardRenderer {
             this.alpha = alpha
         }
         canvas.drawPath(path, paint)
+
+        if (showMarkers) {
+            val first = points.first()
+            val last = points.last()
+            val startX = bounds.left + ((first.longitude - minLng) / lngRange) * bounds.width()
+            val startY = bounds.top + ((maxLat - first.latitude) / latRange) * bounds.height()
+            val endX = bounds.left + ((last.longitude - minLng) / lngRange) * bounds.width()
+            val endY = bounds.top + ((maxLat - last.latitude) / latRange) * bounds.height()
+
+            val outer = max(8f, stroke * 2.2f)
+            val inner = max(5f, stroke * 1.4f)
+            drawMarker(canvas, startX.toFloat(), startY.toFloat(), accentColor, outer, inner)
+            drawMarker(canvas, endX.toFloat(), endY.toFloat(), Color.parseColor("#FF4D4D"), outer, inner)
+        }
+    }
+
+    private fun drawMarker(
+        canvas: Canvas,
+        x: Float,
+        y: Float,
+        color: Int,
+        outerRadius: Float,
+        innerRadius: Float
+    ) {
+        val outerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = Color.WHITE
+            style = Paint.Style.FILL
+        }
+        val innerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            style = Paint.Style.FILL
+        }
+        canvas.drawCircle(x, y, outerRadius, outerPaint)
+        canvas.drawCircle(x, y, innerRadius, innerPaint)
     }
 
     private fun drawPill(
@@ -354,24 +407,31 @@ object ShareCardRenderer {
         textPaint: TextPaint,
         color: Int
     ) {
-        val chipPadding = 12f
+        val chipPadding = 14f
         val text = "$label: $value"
-        val textBounds = Rect()
-        textPaint.getTextBounds(text, 0, text.length, textBounds)
+        val textWidth = textPaint.measureText(text)
+        val textHeight = textPaint.fontMetrics.run { bottom - top }
         val rect = RectF(
             x,
-            y - textBounds.height() - chipPadding,
-            x + textBounds.width() + chipPadding * 2,
+            y - textHeight - chipPadding,
+            x + textWidth + chipPadding * 2,
             y + chipPadding / 2
         )
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this.color = color
             style = Paint.Style.FILL
-            alpha = 18
+            alpha = 22
         }
         canvas.drawRoundRect(rect, 18f, 18f, paint)
         canvas.drawText(text, x + chipPadding, y - chipPadding / 2, textPaint)
     }
+
+    private fun sp(context: Context, value: Float): Float =
+        TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_SP,
+            value,
+            context.resources.displayMetrics
+        )
 
     private fun scaleToFill(source: Bitmap, width: Int, height: Int): Bitmap {
         val dest = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
