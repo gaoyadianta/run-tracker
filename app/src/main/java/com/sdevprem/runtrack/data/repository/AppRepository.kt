@@ -2,8 +2,10 @@ package com.sdevprem.runtrack.data.repository
 
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
+import com.sdevprem.runtrack.data.db.dao.RunAiDao
 import com.sdevprem.runtrack.data.db.dao.RunDao
 import com.sdevprem.runtrack.data.model.Run
+import com.sdevprem.runtrack.data.model.RunAiArtifact
 import com.sdevprem.runtrack.data.utils.RunSortOrder
 import kotlinx.coroutines.flow.Flow
 import java.util.Date
@@ -12,7 +14,8 @@ import javax.inject.Singleton
 
 @Singleton
 class AppRepository @Inject constructor(
-    private val runDao: RunDao
+    private val runDao: RunDao,
+    private val runAiDao: RunAiDao
 ) {
     suspend fun insertRun(run: Run) = runDao.insertRun(run)
 
@@ -34,6 +37,15 @@ class AppRepository @Inject constructor(
         runDao.getRunStatsInDateRange(fromDate, toDate)
 
     fun getRunByDescDateWithLimit(limit: Int) = runDao.getRunByDescDateWithLimit(limit)
+
+    suspend fun upsertRunAiArtifact(artifact: RunAiArtifact) =
+        runAiDao.upsertRunAiArtifact(artifact)
+
+    fun observeRunAiArtifact(runId: Int) = runAiDao.observeRunAiArtifact(runId)
+
+    suspend fun getRunAiArtifact(runId: Int) = runAiDao.getRunAiArtifact(runId)
+
+    suspend fun deleteRunAiArtifact(runId: Int) = runAiDao.deleteRunAiArtifact(runId)
 
     fun getTotalRunningDuration(fromDate: Date? = null, toDate: Date? = null): Flow<Long> =
         runDao.getTotalRunningDuration(fromDate, toDate)
