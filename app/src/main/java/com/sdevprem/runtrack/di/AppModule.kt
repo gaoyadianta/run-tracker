@@ -58,7 +58,8 @@ abstract class AppModule {
             RUN_TRACK_DB_NAME
         ).addMigrations(
             RunTrackDB.MIGRATION_1_2,
-            RunTrackDB.MIGRATION_2_3
+            RunTrackDB.MIGRATION_2_3,
+            RunTrackDB.MIGRATION_3_4
         )
         .build()
 

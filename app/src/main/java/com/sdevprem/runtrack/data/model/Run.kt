@@ -16,6 +16,7 @@ data class Run(
     // 新增步数相关字段
     var totalSteps: Int = 0,           // 总步数
     var avgStepsPerMinute: Float = 0f, // 平均步频
+    var routePoints: String = "",
 
     @PrimaryKey(autoGenerate = true)
     val id: Int = 0

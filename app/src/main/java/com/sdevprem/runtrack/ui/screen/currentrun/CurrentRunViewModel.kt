@@ -9,6 +9,7 @@ import com.sdevprem.runtrack.ai.model.RunningContext
 import com.sdevprem.runtrack.ai.model.RunningState
 import com.sdevprem.runtrack.ai.model.IntegratedRunState
 import com.sdevprem.runtrack.ai.model.AIConnectionState
+import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
 import com.sdevprem.runtrack.data.repository.AppRepository
 import com.sdevprem.runtrack.di.ApplicationScope
@@ -230,7 +231,10 @@ class CurrentRunViewModel @Inject constructor(
                 timestamp = Date(),
                 caloriesBurned = currentRunStateWithCalories.value.caloriesBurnt,
                 totalSteps = runState.currentRunState.totalSteps,
-                avgStepsPerMinute = avgStepsPerMinute
+                avgStepsPerMinute = avgStepsPerMinute,
+                routePoints = RouteEncodingUtils.encodePathPoints(
+                    runState.currentRunState.pathPoints
+                )
             )
         )
         

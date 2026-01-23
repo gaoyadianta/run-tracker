@@ -13,7 +13,7 @@ import com.sdevprem.runtrack.data.model.Run
 
 @Database(
     entities = [Run::class, RunAiArtifact::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 
@@ -45,6 +45,14 @@ abstract class RunTrackDB : RoomDatabase() {
                         "PRIMARY KEY(runId), " +
                         "FOREIGN KEY(runId) REFERENCES running_table(id) ON DELETE CASCADE" +
                         ")"
+                )
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE running_table ADD COLUMN routePoints TEXT NOT NULL DEFAULT ''"
                 )
             }
         }
