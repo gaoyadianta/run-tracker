@@ -25,14 +25,17 @@ import com.sdevprem.runtrack.domain.tracking.model.PathPoint
 import com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint
 import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.ui.common.map.MapProviderFactory
+import com.sdevprem.runtrack.ui.common.map.MapStyle
 
 @Composable
 fun Map(
     modifier: Modifier = Modifier,
     pathPoints: List<PathPoint>,
+    playbackPathPoints: List<PathPoint> = emptyList(),
     isRunningFinished: Boolean,
     annotations: List<RunAiAnnotationPoint> = emptyList(),
     highlightLocation: LocationInfo? = null,
+    mapStyle: MapStyle = MapStyle.STANDARD,
     onSnapshot: (Bitmap) -> Unit,
     onAnnotationClick: (RunAiAnnotationPoint) -> Unit = {}
 ) {
@@ -58,9 +61,11 @@ fun Map(
         mapProvider.MapComposable(
             modifier = Modifier.fillMaxSize(),
             pathPoints = pathPoints,
+            playbackPathPoints = playbackPathPoints,
             isRunningFinished = isRunningFinished,
             annotations = annotations,
             highlightLocation = highlightLocation,
+            mapStyle = mapStyle,
             mapCenter = mapCenter,
             mapSize = mapSize,
             onMapLoaded = { isMapLoaded = true },

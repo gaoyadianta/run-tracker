@@ -23,9 +23,12 @@ import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.model.BitmapDescriptor
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLngBounds
+import com.google.android.gms.maps.model.MapStyleOptions
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.GoogleMapComposable
 import com.google.maps.android.compose.MapEffect
+import com.google.maps.android.compose.MapProperties
+import com.google.maps.android.compose.MapType
 import com.google.maps.android.compose.MapUiSettings
 import com.google.maps.android.compose.MapsComposeExperimentalApi
 import com.google.maps.android.compose.Marker
@@ -51,9 +54,11 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
     override fun MapComposable(
         modifier: Modifier,
         pathPoints: List<PathPoint>,
+        playbackPathPoints: List<PathPoint>,
         isRunningFinished: Boolean,
         annotations: List<RunAiAnnotationPoint>,
         highlightLocation: LocationInfo?,
+        mapStyle: MapStyle,
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
@@ -71,6 +76,19 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
         val lastLocationPoint by remember(pathPoints) {
             derivedStateOf { pathPoints.lasLocationPoint() }
         }
+        val mapProperties = remember(mapStyle) {
+            MapProperties(
+                mapType = when (mapStyle) {
+                    MapStyle.SATELLITE -> MapType.SATELLITE
+                    else -> MapType.NORMAL
+                },
+                mapStyleOptions = if (mapStyle == MapStyle.NIGHT) {
+                    MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_night)
+                } else {
+                    null
+                }
+            )
+        }
 
         LaunchedEffect(key1 = lastLocationPoint) {
             lastLocationPoint?.let {
@@ -86,10 +104,12 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
             modifier = modifier.fillMaxSize(),
             uiSettings = mapUiSettings,
             cameraPositionState = cameraPositionState,
+            properties = mapProperties,
             onMapLoaded = onMapLoaded,
         ) {
             DrawPathPoints(
                 pathPoints = pathPoints,
+                playbackPathPoints = playbackPathPoints,
                 isRunningFinished = isRunningFinished,
                 annotations = annotations,
                 highlightLocation = highlightLocation,
@@ -135,6 +155,7 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
     @GoogleMapComposable
     private fun DrawPathPoints(
         pathPoints: List<PathPoint>,
+        playbackPathPoints: List<PathPoint>,
         isRunningFinished: Boolean,
         annotations: List<RunAiAnnotationPoint>,
         highlightLocation: LocationInfo?,
@@ -165,25 +186,18 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
             }
         }
 
-        val locationInfoList = mutableListOf<LocationInfo>()
-        pathPoints.fastForEach { pathPoint ->
-            if (pathPoint is PathPoint.EmptyLocationPoint) {
-                Polyline(
-                    points = locationInfoList.map { it.toLatLng() },
-                    color = md_theme_light_primary,
-                )
-                locationInfoList.clear()
-            } else if (pathPoint is PathPoint.LocationPoint) {
-                locationInfoList += pathPoint.locationInfo
-            }
-        }
-
-        // Add the last path points
-        if (locationInfoList.isNotEmpty())
-            Polyline(
-                points = locationInfoList.map { it.toLatLng() },
-                color = md_theme_light_primary
+        drawPathSegments(
+            pathPoints = pathPoints,
+            color = md_theme_light_primary.copy(alpha = 0.35f),
+            width = 8f
+        )
+        if (playbackPathPoints.isNotEmpty()) {
+            drawPathSegments(
+                pathPoints = playbackPathPoints,
+                color = md_theme_light_primary,
+                width = 12f
             )
+        }
 
         val currentPosIcon = remember(isRunningFinished) {
             if (isRunningFinished.not()) {
@@ -315,6 +329,38 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
                 mapCenter,
                 onSnapshot,
                 snapshotSideLength
+            )
+        }
+    }
+
+    @Composable
+    @GoogleMapComposable
+    private fun drawPathSegments(
+        pathPoints: List<PathPoint>,
+        color: Color,
+        width: Float
+    ) {
+        if (pathPoints.isEmpty()) return
+        val locationInfoList = mutableListOf<LocationInfo>()
+        pathPoints.fastForEach { pathPoint ->
+            if (pathPoint is PathPoint.EmptyLocationPoint) {
+                if (locationInfoList.isNotEmpty()) {
+                    Polyline(
+                        points = locationInfoList.map { it.toLatLng() },
+                        color = color,
+                        width = width
+                    )
+                    locationInfoList.clear()
+                }
+            } else if (pathPoint is PathPoint.LocationPoint) {
+                locationInfoList += pathPoint.locationInfo
+            }
+        }
+        if (locationInfoList.isNotEmpty()) {
+            Polyline(
+                points = locationInfoList.map { it.toLatLng() },
+                color = color,
+                width = width
             )
         }
     }

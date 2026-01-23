@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
@@ -56,6 +57,9 @@ import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import kotlin.math.abs
+import com.sdevprem.runtrack.domain.tracking.model.PathPoint
+import com.sdevprem.runtrack.ui.common.map.MapStyle
+import kotlinx.coroutines.delay
 
 @Composable
 fun RunDetailScreen(
@@ -69,11 +73,34 @@ fun RunDetailScreen(
     var highlightTimeMs by remember { mutableStateOf(0L) }
     var shareTarget by remember { mutableStateOf(ShareTarget.WECHAT) }
     var selectedAnnotation by remember { mutableStateOf<RunAiAnnotationPoint?>(null) }
+    val isDarkTheme = isSystemInDarkTheme()
+    var mapStyle by remember(isDarkTheme) {
+        mutableStateOf(if (isDarkTheme) MapStyle.NIGHT else MapStyle.STANDARD)
+    }
+    var isPlaybackRunning by remember { mutableStateOf(false) }
 
-    LaunchedEffect(state.metrics) {
+    val locationPoints = remember(state.pathPoints) {
+        state.pathPoints.filterIsInstance<PathPoint.LocationPoint>()
+    }
+    val playbackTimes = remember(locationPoints, state.run) {
+        buildTimeOffsets(locationPoints, state.run?.durationInMillis ?: 0L)
+    }
+    val playbackIndex = remember(playbackTimes, highlightTimeMs) {
+        closestIndex(playbackTimes, highlightTimeMs) ?: 0
+    }
+    val playbackPathPoints = remember(state.pathPoints, playbackIndex, isPlaybackRunning) {
+        if (isPlaybackRunning) {
+            buildPlaybackPathPoints(state.pathPoints, playbackIndex)
+        } else {
+            emptyList()
+        }
+    }
+
+    LaunchedEffect(state.metrics, playbackTimes) {
         if (highlightTimeMs == 0L) {
             val lastTime = state.metrics.paceSeries.lastOrNull()?.timeOffsetMs
                 ?: state.metrics.elevationSeries.lastOrNull()?.timeOffsetMs
+                ?: playbackTimes.lastOrNull()
                 ?: 0L
             highlightTimeMs = lastTime
         }
@@ -89,6 +116,19 @@ fun RunDetailScreen(
             targetTimeMs = highlightTimeMs,
             thresholdMs = 60_000L
         )
+    }
+    LaunchedEffect(isPlaybackRunning, playbackTimes) {
+        if (!isPlaybackRunning || playbackTimes.isEmpty()) return@LaunchedEffect
+        var startIndex = closestIndex(playbackTimes, highlightTimeMs) ?: 0
+        if (startIndex >= playbackTimes.lastIndex) {
+            startIndex = 0
+        }
+        while (startIndex < playbackTimes.size) {
+            highlightTimeMs = playbackTimes[startIndex]
+            delay(700L)
+            startIndex += 1
+        }
+        isPlaybackRunning = false
     }
 
     Scaffold(
@@ -125,15 +165,66 @@ fun RunDetailScreen(
                         RunRouteMap(
                             modifier = Modifier.fillMaxSize(),
                             pathPoints = state.pathPoints,
+                            playbackPathPoints = playbackPathPoints,
                             isRunningFinished = true,
                             annotations = state.aiAnnotations,
                             highlightLocation = highlightLocation,
+                            mapStyle = mapStyle,
                             onSnapshot = {},
                             onAnnotationClick = { annotation ->
                                 selectedAnnotation = annotation
                                 highlightTimeMs = annotation.timeOffsetMs
                             }
                         )
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            MapStyle.values().forEach { style ->
+                                FilterChip(
+                                    selected = mapStyle == style,
+                                    onClick = { mapStyle = style },
+                                    label = {
+                                        Text(
+                                            text = when (style) {
+                                                MapStyle.STANDARD -> "Standard"
+                                                MapStyle.SATELLITE -> "Satellite"
+                                                MapStyle.NIGHT -> "Night"
+                                            }
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            IconButton(
+                                enabled = playbackTimes.isNotEmpty(),
+                                onClick = {
+                                    if (isPlaybackRunning) {
+                                        isPlaybackRunning = false
+                                    } else {
+                                        if (playbackIndex >= playbackTimes.lastIndex) {
+                                            highlightTimeMs = 0L
+                                        }
+                                        isPlaybackRunning = true
+                                    }
+                                }
+                            ) {
+                                Icon(
+                                    imageVector = ImageVector.vectorResource(
+                                        id = if (isPlaybackRunning) R.drawable.ic_pause else R.drawable.ic_play
+                                    ),
+                                    contentDescription = if (isPlaybackRunning) "Pause playback" else "Start playback"
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -394,19 +485,7 @@ private fun findLocationForTime(
 ): LocationInfo? {
     val locations = pathPoints.mapNotNull { it as? com.sdevprem.runtrack.domain.tracking.model.PathPoint.LocationPoint }
     if (locations.isEmpty()) return null
-    val times = locations.map { it.locationInfo.timeMs }
-    val hasTimes = times.any { it > 0L }
-    val offsets = if (hasTimes) {
-        val base = times.firstOrNull { it > 0L } ?: 0L
-        times.map { if (it > 0L) it - base else 0L }
-    } else {
-        val interval = if (locations.size > 1) {
-            (totalDurationMs / (locations.size - 1)).coerceAtLeast(1000L)
-        } else {
-            1000L
-        }
-        List(locations.size) { index -> interval * index }
-    }
+    val offsets = buildTimeOffsets(locations, totalDurationMs)
 
     var bestIndex = 0
     var bestDiff = Long.MAX_VALUE
@@ -418,6 +497,65 @@ private fun findLocationForTime(
         }
     }
     return locations[bestIndex].locationInfo
+}
+
+private fun buildTimeOffsets(
+    locations: List<com.sdevprem.runtrack.domain.tracking.model.PathPoint.LocationPoint>,
+    totalDurationMs: Long
+): List<Long> {
+    if (locations.isEmpty()) return emptyList()
+    val times = locations.map { it.locationInfo.timeMs }
+    val hasTimes = times.any { it > 0L }
+    if (hasTimes) {
+        val base = times.firstOrNull { it > 0L } ?: 0L
+        val interval = estimateInterval(totalDurationMs, locations.size)
+        return times.mapIndexed { index, time ->
+            if (time > 0L) time - base else interval * index
+        }
+    }
+    val interval = estimateInterval(totalDurationMs, locations.size)
+    return List(locations.size) { index -> interval * index }
+}
+
+private fun estimateInterval(totalDurationMs: Long, size: Int): Long {
+    if (size <= 1) return 1000L
+    return (totalDurationMs / (size - 1)).coerceAtLeast(1000L)
+}
+
+private fun buildPlaybackPathPoints(
+    pathPoints: List<com.sdevprem.runtrack.domain.tracking.model.PathPoint>,
+    locationIndex: Int
+): List<com.sdevprem.runtrack.domain.tracking.model.PathPoint> {
+    if (locationIndex < 0) return emptyList()
+    val result = mutableListOf<com.sdevprem.runtrack.domain.tracking.model.PathPoint>()
+    var currentIndex = 0
+    for (point in pathPoints) {
+        when (point) {
+            is com.sdevprem.runtrack.domain.tracking.model.PathPoint.LocationPoint -> {
+                if (currentIndex > locationIndex) break
+                result.add(point)
+                currentIndex += 1
+            }
+            is com.sdevprem.runtrack.domain.tracking.model.PathPoint.EmptyLocationPoint -> {
+                result.add(point)
+            }
+        }
+    }
+    return result
+}
+
+private fun closestIndex(times: List<Long>, target: Long): Int? {
+    if (times.isEmpty()) return null
+    var bestIndex = 0
+    var bestDiff = Long.MAX_VALUE
+    times.forEachIndexed { index, time ->
+        val diff = kotlin.math.abs(time - target)
+        if (diff < bestDiff) {
+            bestDiff = diff
+            bestIndex = index
+        }
+    }
+    return bestIndex
 }
 
 private fun findClosestAnnotation(

@@ -46,9 +46,11 @@ class AmapProvider(private val context: Context) : MapProvider {
     override fun MapComposable(
         modifier: Modifier,
         pathPoints: List<PathPoint>,
+        playbackPathPoints: List<PathPoint>,
         isRunningFinished: Boolean,
         annotations: List<RunAiAnnotationPoint>,
         highlightLocation: LocationInfo?,
+        mapStyle: MapStyle,
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
@@ -108,13 +110,26 @@ class AmapProvider(private val context: Context) : MapProvider {
         }
 
         // Handle path drawing and markers
-        LaunchedEffect(pathPoints, isRunningFinished) {
+        LaunchedEffect(pathPoints, playbackPathPoints, isRunningFinished, highlightLocation) {
             aMap?.let { map ->
                 // Clear previous overlays
                 map.clear()
                 
                 // Draw path lines
-                drawPathLines(map, pathPoints)
+                drawPathLines(
+                    map,
+                    pathPoints,
+                    md_theme_light_primary.copy(alpha = 0.35f).toArgb(),
+                    8f
+                )
+                if (playbackPathPoints.isNotEmpty()) {
+                    drawPathLines(
+                        map,
+                        playbackPathPoints,
+                        md_theme_light_primary.toArgb(),
+                        12f
+                    )
+                }
                 
                 // Add markers
                 addMarkers(
@@ -140,6 +155,14 @@ class AmapProvider(private val context: Context) : MapProvider {
                     onSnapshot,
                     mapSize.width / 2f
                 )
+            }
+        }
+        
+        LaunchedEffect(mapStyle, aMap) {
+            aMap?.mapType = when (mapStyle) {
+                MapStyle.SATELLITE -> AMap.MAP_TYPE_SATELLITE
+                MapStyle.NIGHT -> AMap.MAP_TYPE_NIGHT
+                else -> AMap.MAP_TYPE_NORMAL
             }
         }
 
@@ -173,14 +196,19 @@ class AmapProvider(private val context: Context) : MapProvider {
         )
     }
 
-    private fun drawPathLines(map: AMap, pathPoints: List<PathPoint>) {
+    private fun drawPathLines(
+        map: AMap,
+        pathPoints: List<PathPoint>,
+        color: Int,
+        width: Float
+    ) {
         val locationInfoList = mutableListOf<LocationInfo>()
         
         pathPoints.forEach { pathPoint ->
             when (pathPoint) {
                 is PathPoint.EmptyLocationPoint -> {
                     if (locationInfoList.isNotEmpty()) {
-                        addPolyline(map, locationInfoList)
+                        addPolyline(map, locationInfoList, color, width)
                         locationInfoList.clear()
                     }
                 }
@@ -192,15 +220,20 @@ class AmapProvider(private val context: Context) : MapProvider {
         
         // Add the last segment
         if (locationInfoList.isNotEmpty()) {
-            addPolyline(map, locationInfoList)
+            addPolyline(map, locationInfoList, color, width)
         }
     }
 
-    private fun addPolyline(map: AMap, locationInfoList: List<LocationInfo>) {
+    private fun addPolyline(
+        map: AMap,
+        locationInfoList: List<LocationInfo>,
+        color: Int,
+        width: Float
+    ) {
         val polylineOptions = PolylineOptions()
             .addAll(locationInfoList.map { AmapUtils.toAmapLatLng(it) })
-            .color(md_theme_light_primary.toArgb())
-            .width(10f)
+            .color(color)
+            .width(width)
         
         map.addPolyline(polylineOptions)
     }

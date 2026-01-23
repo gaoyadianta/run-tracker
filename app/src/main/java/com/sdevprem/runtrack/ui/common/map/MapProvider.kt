@@ -15,9 +15,11 @@ interface MapProvider {
     fun MapComposable(
         modifier: Modifier,
         pathPoints: List<PathPoint>,
+        playbackPathPoints: List<PathPoint>,
         isRunningFinished: Boolean,
         annotations: List<RunAiAnnotationPoint>,
         highlightLocation: LocationInfo?,
+        mapStyle: MapStyle,
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
