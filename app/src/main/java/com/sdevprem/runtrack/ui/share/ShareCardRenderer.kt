@@ -10,6 +10,7 @@ import android.graphics.Path
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.BitmapFactory
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
@@ -20,6 +21,7 @@ import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
 import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.ui.share.ShareTarget
+import com.sdevprem.runtrack.R
 import java.util.Locale
 import kotlin.math.max
 
@@ -28,6 +30,7 @@ object ShareCardRenderer {
     private val accentColor = Color.parseColor("#1B998B")
     private val accentDark = Color.parseColor("#0F2F2D")
     private val accentLight = Color.parseColor("#E7F5F3")
+    private var cachedLogo: Bitmap? = null
 
     fun renderStoryCard(
         context: Context,
@@ -39,6 +42,7 @@ object ShareCardRenderer {
         val width = target.width
         val height = target.height
         val scale = if (target == ShareTarget.XHS) 1.08f else 1f
+        val grid = width / 12f
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE)
@@ -72,7 +76,7 @@ object ShareCardRenderer {
         )
         drawPlatformBadge(canvas, context, target, width, dp(context, 16f))
 
-        val padding = dp(context, 32f * scale)
+        val padding = max(grid * 1.25f, dp(context, 24f * scale))
         var cursorY = mapHeight + dp(context, 24f)
 
         drawPill(
@@ -120,9 +124,13 @@ object ShareCardRenderer {
         cursorY += dp(context, 36f)
         drawChip(canvas, padding, cursorY, "Avg pace", "$pace/km", statPaint, accentColor)
 
-        val footerPaint = textPaint(context, 22f * scale, false, accentDark)
-        val footerText = if (target == ShareTarget.XHS) "RunMate · 小红书" else "RunMate · WeChat"
-        canvas.drawText(footerText, padding, height - dp(context, 24f), footerPaint)
+        drawBrandBlock(
+            canvas = canvas,
+            context = context,
+            x = padding,
+            y = height - dp(context, 32f),
+            textColor = accentDark
+        )
 
         return bitmap
     }
@@ -136,6 +144,7 @@ object ShareCardRenderer {
         val width = target.width
         val height = if (target == ShareTarget.XHS) 1920 else 1600
         val scale = if (target == ShareTarget.XHS) 1.1f else 1f
+        val grid = width / 12f
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val mapBitmap = scaleToFill(run.img, width, height)
@@ -168,7 +177,7 @@ object ShareCardRenderer {
         )
         drawPlatformBadge(canvas, context, target, width, dp(context, 20f))
 
-        val padding = dp(context, 56f * scale)
+        val padding = max(grid * 1.5f, dp(context, 32f * scale))
         val textPaint = textPaint(context, 46f * scale, true, Color.WHITE)
         drawWrappedText(
             canvas,
@@ -180,12 +189,12 @@ object ShareCardRenderer {
             center = true
         )
 
-        val footerPaint = textPaint(context, 22f * scale, false, Color.LTGRAY)
-        canvas.drawText(
-            if (target == ShareTarget.XHS) "RunMate · 小红书" else "RunMate · WeChat",
-            padding,
-            height - dp(context, 28f),
-            footerPaint
+        drawBrandBlock(
+            canvas = canvas,
+            context = context,
+            x = padding,
+            y = height - dp(context, 36f),
+            textColor = Color.WHITE
         )
 
         return bitmap
@@ -200,6 +209,7 @@ object ShareCardRenderer {
         val width = target.width
         val height = target.height
         val scale = if (target == ShareTarget.XHS) 1.06f else 1f
+        val grid = width / 12f
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         canvas.drawColor(Color.WHITE)
@@ -214,7 +224,7 @@ object ShareCardRenderer {
         )
         drawPlatformBadge(canvas, context, target, width, dp(context, 16f))
 
-        val padding = dp(context, 32f * scale)
+        val padding = max(grid * 1.25f, dp(context, 24f * scale))
         var cursorY = dp(context, 60f)
 
         val titlePaint = textPaint(context, 42f * scale, true, accentDark)
@@ -262,9 +272,13 @@ object ShareCardRenderer {
             canvas.drawText(deltaLabel, padding, cursorY, textPaint(context, 28f * scale, true, accentDark))
         }
 
-        val footerPaint = textPaint(context, 22f * scale, false, accentDark)
-        val footerText = if (target == ShareTarget.XHS) "RunMate · 小红书" else "RunMate · WeChat"
-        canvas.drawText(footerText, padding, height - dp(context, 24f), footerPaint)
+        drawBrandBlock(
+            canvas = canvas,
+            context = context,
+            x = padding,
+            y = height - dp(context, 32f),
+            textColor = accentDark
+        )
 
         return bitmap
     }
@@ -445,7 +459,7 @@ object ShareCardRenderer {
         width: Int,
         topPadding: Float
     ) {
-        val label = if (target == ShareTarget.XHS) "小红书" else "WeChat"
+        val label = if (target == ShareTarget.XHS) "小红书" else "微信"
         val badgePaint = textPaint(context, 22f, true, Color.WHITE)
         val textWidth = badgePaint.measureText(label)
         val badgePadding = dp(context, 10f)
@@ -459,6 +473,39 @@ object ShareCardRenderer {
         val textX = rect.left + (rect.width() - textWidth) / 2f
         val textY = rect.bottom - dp(context, 8f)
         canvas.drawText(label, textX, textY, badgePaint)
+    }
+
+    private fun drawBrandBlock(
+        canvas: Canvas,
+        context: Context,
+        x: Float,
+        y: Float,
+        textColor: Int
+    ) {
+        val logoSize = dp(context, 24f)
+        val logo = getLogoBitmap(context, logoSize.toInt())
+        logo?.let {
+            canvas.drawBitmap(it, x, y - logoSize, null)
+        }
+        val textPaint = textPaint(context, 22f, true, textColor)
+        val subtitlePaint = textPaint(context, 15f, false, textColor).apply {
+            alpha = 180
+        }
+        val textX = x + logoSize + dp(context, 8f)
+        val textY = y - dp(context, 4f)
+        canvas.drawText("RunMate", textX, textY, textPaint)
+        canvas.drawText("Run with AI", textX, textY + dp(context, 16f), subtitlePaint)
+    }
+
+    private fun getLogoBitmap(context: Context, sizePx: Int): Bitmap? {
+        val cached = cachedLogo
+        val base = cached ?: BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher_runmate)
+            ?.also { cachedLogo = it } ?: return null
+        return try {
+            Bitmap.createScaledBitmap(base, sizePx, sizePx, true)
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun sp(context: Context, value: Float): Float =
