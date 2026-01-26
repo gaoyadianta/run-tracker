@@ -63,6 +63,7 @@ class AmapProvider(private val context: Context) : MapProvider {
         val density = LocalDensity.current
         var latestAnnotations by remember { mutableStateOf<List<RunAiAnnotationPoint>>(emptyList()) }
         latestAnnotations = annotations
+        var allowAutoFollow by remember { mutableStateOf(true) }
         
         val largeLocationIconSize = remember { with(density) { 32.dp.toPx().toInt() } }
         val smallLocationIconSize = remember { with(density) { 16.dp.toPx().toInt() } }
@@ -94,7 +95,8 @@ class AmapProvider(private val context: Context) : MapProvider {
         }
 
         // Camera follow last location
-        LaunchedEffect(lastLocationPoint) {
+        LaunchedEffect(lastLocationPoint, allowAutoFollow) {
+            if (!allowAutoFollow) return@LaunchedEffect
             lastLocationPoint?.let { locationPoint ->
                 aMap?.moveCamera(
                     CameraUpdateFactory.newCameraPosition(
@@ -179,6 +181,13 @@ class AmapProvider(private val context: Context) : MapProvider {
                         mapInstance.uiSettings.isCompassEnabled = true
                         mapInstance.uiSettings.isMyLocationButtonEnabled = false
                         mapInstance.uiSettings.isScaleControlsEnabled = false
+                        mapInstance.uiSettings.isZoomGesturesEnabled = true
+                        mapInstance.uiSettings.isScrollGesturesEnabled = true
+                        mapInstance.uiSettings.isRotateGesturesEnabled = true
+                        mapInstance.uiSettings.isTiltGesturesEnabled = true
+                        mapInstance.setOnMapTouchListener {
+                            allowAutoFollow = false
+                        }
                         mapInstance.setOnMarkerClickListener { marker ->
                             val match = findClosestAnnotation(marker.position, latestAnnotations)
                             if (match != null) {

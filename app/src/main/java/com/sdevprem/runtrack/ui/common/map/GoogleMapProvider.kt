@@ -8,7 +8,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -69,13 +71,18 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
             MapUiSettings(
                 mapToolbarEnabled = false,
                 compassEnabled = true,
-                zoomControlsEnabled = false
+                zoomControlsEnabled = false,
+                zoomGesturesEnabled = true,
+                scrollGesturesEnabled = true,
+                rotationGesturesEnabled = true,
+                tiltGesturesEnabled = true
             )
         }
         val cameraPositionState = rememberCameraPositionState {}
         val lastLocationPoint by remember(pathPoints) {
             derivedStateOf { pathPoints.lasLocationPoint() }
         }
+        var allowAutoFollow by remember { mutableStateOf(true) }
         val mapProperties = remember(mapStyle) {
             MapProperties(
                 mapType = when (mapStyle) {
@@ -90,7 +97,8 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
             )
         }
 
-        LaunchedEffect(key1 = lastLocationPoint) {
+        LaunchedEffect(key1 = lastLocationPoint, allowAutoFollow) {
+            if (!allowAutoFollow) return@LaunchedEffect
             lastLocationPoint?.let {
                 cameraPositionState.animate(
                     CameraUpdateFactory.newCameraPosition(
@@ -115,6 +123,14 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
                 highlightLocation = highlightLocation,
                 onAnnotationClick = onAnnotationClick
             )
+
+            MapEffect(key1 = Unit) { map ->
+                map.setOnCameraMoveStartedListener { reason ->
+                    if (reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE) {
+                        allowAutoFollow = false
+                    }
+                }
+            }
 
             TakeScreenShot(
                 take = isRunningFinished,
