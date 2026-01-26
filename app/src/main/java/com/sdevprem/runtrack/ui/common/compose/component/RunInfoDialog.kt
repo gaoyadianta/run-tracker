@@ -27,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -40,8 +41,11 @@ import androidx.compose.ui.unit.dp
 import com.sdevprem.runtrack.R
 import com.sdevprem.runtrack.common.extension.getDisplayDate
 import com.sdevprem.runtrack.common.utils.DateTimeUtils
+import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
+import com.sdevprem.runtrack.ui.common.map.MapStyle
 import com.sdevprem.runtrack.ui.theme.md_theme_light_onSurface
+import com.sdevprem.runtrack.ui.screen.currentrun.component.Map as RunRouteMap
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,14 +112,31 @@ private fun RunImage(
     Box(
         modifier = modifier,
     ) {
-        Image(
-            bitmap = run.img.asImageBitmap(),
-            contentDescription = null,
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f),
-            contentScale = ContentScale.Crop,
-        )
+        val pathPoints = remember(run.routePoints) {
+            RouteEncodingUtils.decodeToPathPoints(run.routePoints)
+        }
+        if (pathPoints.isNotEmpty()) {
+            RunRouteMap(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f),
+                pathPoints = pathPoints,
+                isRunningFinished = true,
+                mapStyle = MapStyle.STANDARD,
+                allowAutoFollow = false,
+                fitRouteOnLoad = true,
+                onSnapshot = {},
+            )
+        } else {
+            Image(
+                bitmap = run.img.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(1f),
+                contentScale = ContentScale.Crop,
+            )
+        }
 
         IconButton(
             onClick = onDismiss,
