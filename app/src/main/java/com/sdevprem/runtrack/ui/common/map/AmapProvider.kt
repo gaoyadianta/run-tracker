@@ -156,8 +156,9 @@ class AmapProvider(private val context: Context) : MapProvider {
                 AmapUtils.takeSnapshot(
                     aMap!!,
                     pathPoints,
+                    mapCenter,
                     onSnapshot,
-                    mapSize.width / 2f
+                    kotlin.math.min(mapSize.width, mapSize.height)
                 )
             }
         }
@@ -393,6 +394,7 @@ class AmapProvider(private val context: Context) : MapProvider {
             AmapUtils.takeSnapshot(
                 mapInstance,
                 pathPoints,
+                mapCenter,
                 onSnapshot,
                 snapshotSideLength
             )
