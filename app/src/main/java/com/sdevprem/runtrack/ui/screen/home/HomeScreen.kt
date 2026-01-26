@@ -3,6 +3,8 @@ package com.sdevprem.runtrack.ui.screen.home
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,6 +92,9 @@ fun HomeScreen(
             navigateToRunningHistoryScreen = {
                 BottomNavDestination.Home.RecentRun.navigateToRunningHistoryScreen(navController)
             },
+            navigateToRunDetail = { run ->
+                Destination.navigateToRunDetail(navController, run.id)
+            },
             navigateToRunStats = {
                 BottomNavDestination.Home.navigateToRunStats(navController)
             },
@@ -114,6 +119,7 @@ fun HomeScreenContent(
     dismissDialog: () -> Unit,
     navigateToRunScreen: () -> Unit,
     navigateToRunningHistoryScreen: () -> Unit,
+    navigateToRunDetail: (Run) -> Unit,
     navigateToRunStats: () -> Unit,
     navigateToSettings: () -> Unit = {},
 ) {
@@ -173,7 +179,8 @@ fun HomeScreenContent(
             else
                 RecentRunList(
                     runList = state.runList,
-                    onItemClick = showRun
+                    onItemClick = navigateToRunDetail,
+                    onItemLongClick = showRun
                 )
         }
     }
@@ -187,10 +194,12 @@ fun HomeScreenContent(
 }
 
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 private fun RecentRunList(
     modifier: Modifier = Modifier,
     runList: List<Run>,
     onItemClick: (Run) -> Unit,
+    onItemLongClick: (Run) -> Unit = {},
 ) {
     ElevatedCard(
         elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
@@ -207,7 +216,10 @@ private fun RecentRunList(
                     RunItem(
                         run = run,
                         modifier = Modifier
-                            .clickable { onItemClick(run) }
+                            .combinedClickable(
+                                onClick = { onItemClick(run) },
+                                onLongClick = { onItemLongClick(run) }
+                            )
                             .padding(16.dp)
                     )
                     if (i < runList.lastIndex)
