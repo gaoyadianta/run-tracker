@@ -170,6 +170,8 @@ fun RunDetailScreen(
                             annotations = state.aiAnnotations,
                             highlightLocation = highlightLocation,
                             mapStyle = mapStyle,
+                            allowAutoFollow = false,
+                            fitRouteOnLoad = true,
                             onSnapshot = {},
                             onAnnotationClick = { annotation ->
                                 selectedAnnotation = annotation

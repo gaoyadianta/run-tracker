@@ -22,6 +22,7 @@ interface MapProvider {
         mapStyle: MapStyle,
         allowAutoFollow: Boolean,
         followLocationTrigger: Int,
+        fitRouteOnLoad: Boolean,
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,

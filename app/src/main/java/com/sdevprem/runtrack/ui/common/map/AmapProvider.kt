@@ -53,6 +53,7 @@ class AmapProvider(private val context: Context) : MapProvider {
         mapStyle: MapStyle,
         allowAutoFollow: Boolean,
         followLocationTrigger: Int,
+        fitRouteOnLoad: Boolean,
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
@@ -110,6 +111,32 @@ class AmapProvider(private val context: Context) : MapProvider {
                         )
                     )
                 )
+            }
+        }
+
+        LaunchedEffect(pathPoints, fitRouteOnLoad, mapSize) {
+            if (!fitRouteOnLoad || pathPoints.size < 2) return@LaunchedEffect
+            if (mapSize.width <= 0f || mapSize.height <= 0f) return@LaunchedEffect
+            val boundsBuilder = com.amap.api.maps.model.LatLngBounds.Builder()
+            pathPoints.forEach { point ->
+                if (point is PathPoint.LocationPoint) {
+                    boundsBuilder.include(AmapUtils.toAmapLatLng(point.locationInfo))
+                }
+            }
+            val padding = (kotlin.math.min(mapSize.width, mapSize.height) * 0.18f).toInt()
+                .coerceAtLeast(48)
+            try {
+                val bounds = boundsBuilder.build()
+                aMap?.moveCamera(
+                    CameraUpdateFactory.newLatLngBounds(
+                        bounds,
+                        mapSize.width.toInt(),
+                        mapSize.height.toInt(),
+                        padding
+                    )
+                )
+            } catch (_: Exception) {
+                // ignore invalid bounds
             }
         }
 

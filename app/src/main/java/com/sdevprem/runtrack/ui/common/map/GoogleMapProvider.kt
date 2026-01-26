@@ -61,6 +61,7 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
         mapStyle: MapStyle,
         allowAutoFollow: Boolean,
         followLocationTrigger: Int,
+        fitRouteOnLoad: Boolean,
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
@@ -106,6 +107,27 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
                     )
                 )
             }
+        }
+
+        LaunchedEffect(pathPoints, fitRouteOnLoad, mapSize) {
+            if (!fitRouteOnLoad || pathPoints.size < 2) return@LaunchedEffect
+            if (mapSize.width <= 0f || mapSize.height <= 0f) return@LaunchedEffect
+            val boundsBuilder = LatLngBounds.Builder()
+            pathPoints.forEach { point ->
+                if (point is PathPoint.LocationPoint) {
+                    boundsBuilder.include(point.locationInfo.toLatLng())
+                }
+            }
+            val padding = (kotlin.math.min(mapSize.width, mapSize.height) * 0.18f).toInt()
+                .coerceAtLeast(48)
+            cameraPositionState.animate(
+                CameraUpdateFactory.newLatLngBounds(
+                    boundsBuilder.build(),
+                    mapSize.width.toInt(),
+                    mapSize.height.toInt(),
+                    padding
+                )
+            )
         }
 
         GoogleMap(

@@ -38,6 +38,7 @@ fun Map(
     mapStyle: MapStyle = MapStyle.STANDARD,
     allowAutoFollow: Boolean = true,
     followLocationTrigger: Int = 0,
+    fitRouteOnLoad: Boolean = false,
     onSnapshot: (Bitmap) -> Unit,
     onUserGesture: () -> Unit = {},
     onAnnotationClick: (RunAiAnnotationPoint) -> Unit = {}
@@ -71,6 +72,7 @@ fun Map(
             mapStyle = mapStyle,
             allowAutoFollow = allowAutoFollow,
             followLocationTrigger = followLocationTrigger,
+            fitRouteOnLoad = fitRouteOnLoad,
             mapCenter = mapCenter,
             mapSize = mapSize,
             onMapLoaded = { isMapLoaded = true },
