@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -39,11 +40,13 @@ import com.sdevprem.runtrack.common.utils.PermissionUtils
 import com.sdevprem.runtrack.data.tracking.location.LocationUtils
 import com.sdevprem.runtrack.ui.common.compose.BatteryOptimizationDialog
 import com.sdevprem.runtrack.ui.common.compose.animation.ComposeUtils
+import com.sdevprem.runtrack.ui.common.map.MapStyle
 import com.sdevprem.runtrack.ui.screen.currentrun.component.AICompanionCard
 import com.sdevprem.runtrack.ui.screen.currentrun.component.CurrentRunStatsCard
 import com.sdevprem.runtrack.ui.screen.currentrun.component.Map
 import com.sdevprem.runtrack.ui.theme.AppTheme
 import kotlinx.coroutines.delay
+import android.os.SystemClock
 
 @Composable
 @Preview(showBackground = true)
@@ -75,6 +78,9 @@ fun CurrentRunScreen(
     var isRunningFinished by rememberSaveable { mutableStateOf(false) }
     var shouldShowRunningCard by rememberSaveable { mutableStateOf(false) }
     var showBatteryOptimizationDialog by remember { mutableStateOf(false) }
+    var allowAutoFollow by rememberSaveable { mutableStateOf(true) }
+    var followLocationTrigger by rememberSaveable { mutableStateOf(0) }
+    var lastUserGestureAt by remember { mutableStateOf(0L) }
     
     val runState by viewModel.currentRunStateWithCalories.collectAsStateWithLifecycle()
     val runningDurationInMillis by viewModel.runningDurationInMillis.collectAsStateWithLifecycle()
@@ -93,6 +99,13 @@ fun CurrentRunScreen(
     LaunchedEffect(key1 = "show_running_card") {
         delay(ComposeUtils.slideDownInDuration + 200L)
         shouldShowRunningCard = true
+    }
+    
+    LaunchedEffect(lastUserGestureAt) {
+        if (lastUserGestureAt == 0L) return@LaunchedEffect
+        delay(8_000L)
+        allowAutoFollow = true
+        followLocationTrigger += 1
     }
 
     // 检查电池优化设置
@@ -122,11 +135,36 @@ fun CurrentRunScreen(
         Map(
                 pathPoints = runState.currentRunState.pathPoints,
                 isRunningFinished = isRunningFinished,
+                mapStyle = MapStyle.STANDARD,
+                allowAutoFollow = allowAutoFollow,
+                followLocationTrigger = followLocationTrigger,
                 onSnapshot = { bitmap ->
                     viewModel.finishRun(bitmap)
                     navController.navigateUp()
+                },
+                onUserGesture = {
+                    allowAutoFollow = false
+                    lastUserGestureAt = SystemClock.elapsedRealtime()
                 }
         )
+        FloatingActionButton(
+                onClick = {
+                    allowAutoFollow = true
+                    followLocationTrigger += 1
+                    lastUserGestureAt = 0L
+                },
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary,
+                modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 16.dp, bottom = if (shouldShowRunningCard) 140.dp else 24.dp)
+                        .size(44.dp)
+        ) {
+            Icon(
+                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_location_marker),
+                    contentDescription = "Follow location"
+            )
+        }
         TopBar(
                 modifier = Modifier.align(Alignment.TopStart).padding(24.dp),
                 onNavigateUp = navController::navigateUp

@@ -51,10 +51,13 @@ class AmapProvider(private val context: Context) : MapProvider {
         annotations: List<RunAiAnnotationPoint>,
         highlightLocation: LocationInfo?,
         mapStyle: MapStyle,
+        allowAutoFollow: Boolean,
+        followLocationTrigger: Int,
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
         onSnapshot: (Bitmap) -> Unit,
+        onUserGesture: () -> Unit,
         onAnnotationClick: (RunAiAnnotationPoint) -> Unit
     ) {
         var mapView by remember { mutableStateOf<MapView?>(null) }
@@ -63,7 +66,6 @@ class AmapProvider(private val context: Context) : MapProvider {
         val density = LocalDensity.current
         var latestAnnotations by remember { mutableStateOf<List<RunAiAnnotationPoint>>(emptyList()) }
         latestAnnotations = annotations
-        var allowAutoFollow by remember { mutableStateOf(true) }
         
         val largeLocationIconSize = remember { with(density) { 32.dp.toPx().toInt() } }
         val smallLocationIconSize = remember { with(density) { 16.dp.toPx().toInt() } }
@@ -95,7 +97,7 @@ class AmapProvider(private val context: Context) : MapProvider {
         }
 
         // Camera follow last location
-        LaunchedEffect(lastLocationPoint, allowAutoFollow) {
+        LaunchedEffect(lastLocationPoint, allowAutoFollow, followLocationTrigger) {
             if (!allowAutoFollow) return@LaunchedEffect
             lastLocationPoint?.let { locationPoint ->
                 aMap?.moveCamera(
@@ -186,7 +188,7 @@ class AmapProvider(private val context: Context) : MapProvider {
                         mapInstance.uiSettings.isRotateGesturesEnabled = true
                         mapInstance.uiSettings.isTiltGesturesEnabled = true
                         mapInstance.setOnMapTouchListener {
-                            allowAutoFollow = false
+                            onUserGesture()
                         }
                         mapInstance.setOnMarkerClickListener { marker ->
                             val match = findClosestAnnotation(marker.position, latestAnnotations)

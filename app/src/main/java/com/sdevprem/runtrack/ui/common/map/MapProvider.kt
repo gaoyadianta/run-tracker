@@ -20,10 +20,13 @@ interface MapProvider {
         annotations: List<RunAiAnnotationPoint>,
         highlightLocation: LocationInfo?,
         mapStyle: MapStyle,
+        allowAutoFollow: Boolean,
+        followLocationTrigger: Int,
         mapCenter: Offset,
         mapSize: Size,
         onMapLoaded: () -> Unit,
         onSnapshot: (Bitmap) -> Unit,
+        onUserGesture: () -> Unit,
         onAnnotationClick: (RunAiAnnotationPoint) -> Unit
     )
 

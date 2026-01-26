@@ -36,7 +36,10 @@ fun Map(
     annotations: List<RunAiAnnotationPoint> = emptyList(),
     highlightLocation: LocationInfo? = null,
     mapStyle: MapStyle = MapStyle.STANDARD,
+    allowAutoFollow: Boolean = true,
+    followLocationTrigger: Int = 0,
     onSnapshot: (Bitmap) -> Unit,
+    onUserGesture: () -> Unit = {},
     onAnnotationClick: (RunAiAnnotationPoint) -> Unit = {}
 ) {
     var mapSize by remember { mutableStateOf(Size(0f, 0f)) }
@@ -66,10 +69,13 @@ fun Map(
             annotations = annotations,
             highlightLocation = highlightLocation,
             mapStyle = mapStyle,
+            allowAutoFollow = allowAutoFollow,
+            followLocationTrigger = followLocationTrigger,
             mapCenter = mapCenter,
             mapSize = mapSize,
             onMapLoaded = { isMapLoaded = true },
             onSnapshot = onSnapshot,
+            onUserGesture = onUserGesture,
             onAnnotationClick = onAnnotationClick
         )
     }
