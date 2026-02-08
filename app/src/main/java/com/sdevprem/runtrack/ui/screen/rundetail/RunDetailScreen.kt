@@ -28,10 +28,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,7 +37,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -173,7 +170,8 @@ fun RunDetailScreen(
 
     Scaffold(
         topBar = {
-            RunDetailTopBar(
+            RunContextHeader(
+                run = state.run,
                 onNavigateUp = navigateUp,
                 onDelete = if (state.run == null) null else { { showDeleteDialog = true } }
             )
@@ -191,9 +189,9 @@ fun RunDetailScreen(
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 val density = LocalDensity.current
                 val maxHeightPx = with(density) { maxHeight.toPx() }
-                val collapsedHeight = (maxHeight * 0.34f).coerceIn(220.dp, 280.dp)
-                val halfHeight = (maxHeight * 0.58f).coerceIn(collapsedHeight + 80.dp, maxHeight * 0.75f)
-                val expandedHeight = (maxHeight * 0.9f).coerceAtLeast(halfHeight + 120.dp)
+                val collapsedHeight = (maxHeight * 0.42f).coerceIn(280.dp, 360.dp)
+                val halfHeight = (maxHeight * 0.68f).coerceIn(collapsedHeight + 80.dp, maxHeight * 0.84f)
+                val expandedHeight = (maxHeight * 0.93f).coerceAtLeast(halfHeight + 120.dp)
                     .coerceAtMost(maxHeight)
 
                 val anchors = remember(collapsedHeight, halfHeight, expandedHeight, maxHeightPx) {
@@ -297,7 +295,7 @@ fun RunDetailScreen(
                     Row(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(top = topInset + 8.dp, end = 8.dp),
+                            .padding(top = topInset + 10.dp, end = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         MapStyle.values().forEach { style ->
@@ -389,33 +387,116 @@ fun RunDetailScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+private data class EnvironmentContext(
+    val weatherLabel: String,
+    val temperatureLabel: String,
+    val pm25Label: String
+)
+
 @Composable
-private fun RunDetailTopBar(
+private fun RunContextHeader(
+    run: com.sdevprem.runtrack.data.model.Run?,
     onNavigateUp: () -> Unit,
     onDelete: (() -> Unit)? = null
 ) {
-    TopAppBar(
-        title = { Text(text = "Run Details") },
-        navigationIcon = {
-            IconButton(onClick = onNavigateUp) {
-                Icon(
-                    imageVector = ImageVector.vectorResource(id = R.drawable.ic_arrow_backward),
-                    contentDescription = "Navigate back"
-                )
-            }
-        },
-        actions = {
-            if (onDelete != null) {
-                IconButton(onClick = onDelete) {
+    val context = remember(run) { buildEnvironmentContext(run) }
+    val textPrimary = MaterialTheme.colorScheme.onSurface
+    val textMuted = MaterialTheme.colorScheme.onSurfaceVariant
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 4.dp,
+        shadowElevation = 2.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onNavigateUp) {
                     Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete run"
+                        imageVector = ImageVector.vectorResource(id = R.drawable.ic_arrow_backward),
+                        contentDescription = "返回"
                     )
                 }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "AI跑伴 · 跑步记录",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        color = textPrimary
+                    )
+                    Text(
+                        text = "Run Summary",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textMuted
+                    )
+                }
+
+                if (onDelete != null) {
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "删除记录"
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ContextBadge(
+                    label = "${context.weatherLabel} ${context.temperatureLabel}",
+                    dotColor = Color(0xFFF7C54B),
+                    modifier = Modifier.weight(1f)
+                )
+                ContextBadge(
+                    label = "PM2.5 ${context.pm25Label}",
+                    dotColor = Color(0xFF7FB4FF),
+                    modifier = Modifier.weight(1f)
+                )
             }
         }
-    )
+    }
+}
+
+@Composable
+private fun ContextBadge(
+    label: String,
+    dotColor: Color,
+    modifier: Modifier = Modifier
+) {
+    val textPrimary = MaterialTheme.colorScheme.onSurface
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(dotColor)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = textPrimary
+            )
+        }
+    }
 }
 
 private enum class ShareMode {
@@ -494,15 +575,12 @@ private fun RunHistoryBottomSheet(
                     .padding(horizontal = 16.dp)
                     .padding(top = 24.dp, bottom = 96.dp)
             ) {
-                RunSummaryHeader(
+                PrimaryRunSummaryCard(
                     run = run,
+                    metrics = metrics,
                     isPlaybackRunning = isPlaybackRunning,
                     onPlaybackToggle = onPlaybackToggle
                 )
-                Spacer(modifier = Modifier.height(12.dp))
-                RunDistanceBlock(run = run)
-                Spacer(modifier = Modifier.height(12.dp))
-                RunStatsRow(run = run, metrics = metrics)
 
                 selectedAnnotation?.let { annotation ->
                     Spacer(modifier = Modifier.height(12.dp))
@@ -510,14 +588,14 @@ private fun RunHistoryBottomSheet(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
-                AiRecapCard(oneLiner = oneLiner, summary = summary)
-                Spacer(modifier = Modifier.height(16.dp))
                 RunMetricsSection(
                     metrics = metrics,
                     annotations = annotations,
                     highlightTimeMs = highlightTimeMs,
                     onHighlightTimeChange = onHighlightTimeChange
                 )
+                Spacer(modifier = Modifier.height(16.dp))
+                AiRecapCard(oneLiner = oneLiner, summary = summary)
                 Spacer(modifier = Modifier.height(16.dp))
                 ShareOptionsSection(
                     shareTarget = shareTarget,
@@ -588,140 +666,204 @@ private fun SheetHandle(
 }
 
 @Composable
-private fun RunSummaryHeader(
+private fun PrimaryRunSummaryCard(
     run: com.sdevprem.runtrack.data.model.Run?,
+    metrics: com.sdevprem.runtrack.domain.model.RunMetricsData,
     isPlaybackRunning: Boolean,
     onPlaybackToggle: () -> Unit
 ) {
-    val formatter = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
-    val dateLabel = run?.timestamp?.let { formatter.format(it) } ?: "--"
-    val textPrimary = MaterialTheme.colorScheme.onSurface
-    val textMuted = MaterialTheme.colorScheme.onSurfaceVariant
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Image(
-            painter = painterResource(id = R.drawable.demo_profile_pic),
-            contentDescription = "profile",
-            modifier = Modifier
-                .size(44.dp)
-                .clip(CircleShape),
-            contentScale = ContentScale.Crop
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "Runner",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                color = textPrimary
-            )
-            Text(
-                text = dateLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = textMuted
-            )
-        }
-        Button(
-            onClick = onPlaybackToggle,
-            enabled = run != null,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        ) {
-            Icon(
-                imageVector = ImageVector.vectorResource(
-                    id = if (isPlaybackRunning) R.drawable.ic_pause else R.drawable.ic_play
-                ),
-                contentDescription = null,
-                modifier = Modifier.size(16.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(text = if (isPlaybackRunning) "暂停轨迹" else "动态轨迹")
-        }
-    }
-}
-
-@Composable
-private fun RunDistanceBlock(
-    run: com.sdevprem.runtrack.data.model.Run?
-) {
+    val dateFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
+    val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val dateLabel = run?.timestamp?.let { dateFormatter.format(it) } ?: "--"
+    val timeLabel = run?.timestamp?.let { timeFormatter.format(it) } ?: "--"
     val distanceKm = run?.distanceInMeters?.div(1000f) ?: 0f
-    val textPrimary = MaterialTheme.colorScheme.onSurface
-    val textMuted = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(verticalAlignment = Alignment.Bottom) {
-        Text(
-            text = String.format(Locale.US, "%.2f", distanceKm),
-            style = MaterialTheme.typography.displaySmall.copy(
-                fontWeight = FontWeight.Bold,
-                fontSize = 40.sp
-            ),
-            color = textPrimary
-        )
-        Spacer(modifier = Modifier.width(6.dp))
-        Text(
-            text = "公里",
-            style = MaterialTheme.typography.titleSmall,
-            color = textMuted
-        )
-    }
-}
-
-@Composable
-private fun RunStatsRow(
-    run: com.sdevprem.runtrack.data.model.Run?,
-    metrics: com.sdevprem.runtrack.domain.model.RunMetricsData
-) {
+    val textPrimary = Color(0xFFEAF1FA)
+    val textMuted = Color(0xFFA8B3C2)
     val paceLabel = run?.let {
         RunUtils.formatPace(RunUtils.convertSpeedToPace(it.avgSpeedInKMH))
     } ?: "--"
     val durationLabel = run?.let { DateTimeUtils.getFormattedStopwatchTime(it.durationInMillis) } ?: "--"
-    val elevationGain = computeElevationGain(metrics.elevationSeries)
-    val elevationLabel = elevationGain?.let { "${it}m" } ?: "--"
+    val caloriesLabel = run?.caloriesBurned?.takeIf { it > 0 }?.toString() ?: "--"
+    val cadenceLabel = run?.avgStepsPerMinute?.takeIf { it > 0f }?.let {
+        String.format(Locale.US, "%.0f", it)
+    } ?: "--"
     val stepsLabel = run?.totalSteps?.takeIf { it > 0 }?.toString() ?: "--"
+    val elevationLabel = computeElevationGain(metrics.elevationSeries)?.let { "${it}m" } ?: "--"
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
+    Surface(
+        color = Color(0xFF1F2228),
+        shape = RoundedCornerShape(20.dp),
+        tonalElevation = 0.dp
     ) {
-        StatItem(
-            label = "平均配速",
-            value = paceLabel,
-            modifier = Modifier.weight(1f)
-        )
-        StatItem(
-            label = "用时",
-            value = durationLabel,
-            modifier = Modifier.weight(1f)
-        )
-        StatItem(
-            label = "爬升",
-            value = elevationLabel,
-            modifier = Modifier.weight(1f)
-        )
-        StatItem(
-            label = "步数",
-            value = stepsLabel,
-            modifier = Modifier.weight(1f)
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.demo_profile_pic),
+                    contentDescription = "profile",
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Runner",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                        color = textPrimary
+                    )
+                    Text(
+                        text = "${dateLabel}  ${timeLabel} 开始",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textMuted
+                    )
+                }
+                Text(
+                    text = "跑步基础信息",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = textMuted
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = String.format(Locale.US, "%.2f", distanceKm),
+                    style = MaterialTheme.typography.displaySmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 42.sp
+                    ),
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "km",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = textMuted
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(116.dp)
+                    .clip(RoundedCornerShape(14.dp))
+            ) {
+                if (run != null) {
+                    Image(
+                        bitmap = run.img.asImageBitmap(),
+                        contentDescription = "route thumbnail",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF2B313A)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "路线缩略图",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = textMuted
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = onPlaybackToggle,
+                    enabled = run != null,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(10.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xD91B1F24),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Icon(
+                        imageVector = ImageVector.vectorResource(
+                            id = if (isPlaybackRunning) R.drawable.ic_pause else R.drawable.ic_play
+                        ),
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(text = if (isPlaybackRunning) "暂停轨迹" else "查看动态轨迹")
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                PrimaryMetricItem(
+                    label = "平均配速",
+                    value = paceLabel,
+                    textPrimary = textPrimary,
+                    textMuted = textMuted,
+                    modifier = Modifier.weight(1f)
+                )
+                PrimaryMetricItem(
+                    label = "总用时",
+                    value = durationLabel,
+                    textPrimary = textPrimary,
+                    textMuted = textMuted,
+                    modifier = Modifier.weight(1f)
+                )
+                PrimaryMetricItem(
+                    label = "消耗热量",
+                    value = if (caloriesLabel == "--") "--" else "${caloriesLabel}kcal",
+                    textPrimary = textPrimary,
+                    textMuted = textMuted,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(modifier = Modifier.fillMaxWidth()) {
+                PrimaryMetricItem(
+                    label = "平均步频",
+                    value = if (cadenceLabel == "--") "--" else "${cadenceLabel}步/分",
+                    textPrimary = textPrimary,
+                    textMuted = textMuted,
+                    modifier = Modifier.weight(1f)
+                )
+                PrimaryMetricItem(
+                    label = "总步数",
+                    value = stepsLabel,
+                    textPrimary = textPrimary,
+                    textMuted = textMuted,
+                    modifier = Modifier.weight(1f)
+                )
+                PrimaryMetricItem(
+                    label = "累计爬升",
+                    value = elevationLabel,
+                    textPrimary = textPrimary,
+                    textMuted = textMuted,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun StatItem(
+private fun PrimaryMetricItem(
     label: String,
     value: String,
+    textPrimary: Color,
+    textMuted: Color,
     modifier: Modifier = Modifier
 ) {
-    val textPrimary = MaterialTheme.colorScheme.onSurface
-    val textMuted = MaterialTheme.colorScheme.onSurfaceVariant
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Column(modifier = modifier) {
         Text(
             text = value,
             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
@@ -733,6 +875,22 @@ private fun StatItem(
             color = textMuted
         )
     }
+}
+
+private fun buildEnvironmentContext(run: com.sdevprem.runtrack.data.model.Run?): EnvironmentContext {
+    if (run == null) {
+        return EnvironmentContext(
+            weatherLabel = "天气未记录",
+            temperatureLabel = "--°C",
+            pm25Label = "--"
+        )
+    }
+
+    return EnvironmentContext(
+        weatherLabel = "天气未记录",
+        temperatureLabel = "--°C",
+        pm25Label = "--"
+    )
 }
 
 

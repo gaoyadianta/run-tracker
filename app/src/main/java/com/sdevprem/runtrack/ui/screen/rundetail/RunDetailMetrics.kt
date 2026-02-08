@@ -1,5 +1,6 @@
 package com.sdevprem.runtrack.ui.screen.rundetail
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -34,6 +36,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -71,6 +75,7 @@ import com.sdevprem.runtrack.domain.model.RunSplit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import androidx.compose.foundation.gestures.detectTapGestures
 
@@ -109,6 +114,7 @@ private fun rememberMetricsPalette(): MetricsPalette {
 private val PaceFastColor = Color(0xFF4CD27F)
 private val PaceMidColor = Color(0xFFF2C14E)
 private val PaceSlowColor = Color(0xFFE45A5A)
+private val PaceNeutralColor = Color(0xFF9CA6B5)
 private val PaceLineColor = Color(0xFF4AA3FF)
 private val PaceAverageLineColor = Color(0xFFF7C54B)
 private val HeartLineColor = Color(0xFFE45A5A)
@@ -130,6 +136,8 @@ fun RunMetricsSection(
 
     Column(modifier = modifier) {
         if (metrics.splits.isNotEmpty()) {
+            PaceOverviewSection(splits = metrics.splits, palette = palette)
+            Spacer(modifier = Modifier.height(16.dp))
             RunSplitsSection(splits = metrics.splits, palette = palette)
             Spacer(modifier = Modifier.height(16.dp))
         }
@@ -760,76 +768,246 @@ private fun formatTimeOffset(timeOffsetMs: Long): String {
 }
 
 @Composable
+private fun PaceOverviewSection(
+    splits: List<RunSplit>,
+    palette: MetricsPalette,
+    modifier: Modifier = Modifier
+) {
+    val fullKmSplits = remember(splits) { splits.filter { it.distanceMeters >= 1000 } }
+    val sourceSplits = if (fullKmSplits.isNotEmpty()) fullKmSplits else splits
+    val paceValues = sourceSplits.map { it.paceMinPerKm }.filter { it > 0f }
+
+    SectionCard(
+        title = "配速概览",
+        palette = palette,
+        modifier = modifier
+    ) {
+        if (paceValues.isEmpty()) {
+            Text(
+                text = "暂无可用配速数据",
+                style = MaterialTheme.typography.bodyMedium,
+                color = palette.textMuted
+            )
+            return@SectionCard
+        }
+
+        val fastest = paceValues.minOrNull() ?: 0f
+        val slowest = paceValues.maxOrNull() ?: 0f
+        val paceRange = (slowest - fastest).coerceAtLeast(0.01f)
+        val overviewHint = buildPaceOverviewHint(sourceSplits)
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "慢",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textMuted
+            )
+            Text(
+                text = "快",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textMuted
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(18.dp)
+                .clip(RoundedCornerShape(50))
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(PaceSlowColor, PaceMidColor, PaceFastColor)
+                    )
+                )
+        ) {
+            sourceSplits.forEach { split ->
+                val position = ((slowest - split.paceMinPerKm) / paceRange).coerceIn(0f, 1f)
+                val x = position * size.width
+                drawLine(
+                    color = Color.White.copy(alpha = 0.75f),
+                    start = Offset(x = x, y = 0f),
+                    end = Offset(x = x, y = size.height),
+                    strokeWidth = 2.dp.toPx()
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = overviewHint,
+            style = MaterialTheme.typography.bodySmall,
+            color = palette.textMuted
+        )
+    }
+}
+
+private fun buildPaceOverviewHint(splits: List<RunSplit>): String {
+    if (splits.size < 3) {
+        return "公里段样本较少，继续积累可获得更稳定的节奏分析。"
+    }
+    val paces = splits.map { it.paceMinPerKm }.filter { it > 0f }
+    if (paces.size < 3) {
+        return "公里段样本较少，继续积累可获得更稳定的节奏分析。"
+    }
+    val fastest = paces.minOrNull() ?: return ""
+    val slowest = paces.maxOrNull() ?: return ""
+    val spread = slowest - fastest
+    val half = (paces.size / 2).coerceAtLeast(1)
+    val firstHalfAvg = paces.take(half).average().toFloat()
+    val secondHalfAvg = paces.takeLast(half).average().toFloat()
+
+    return when {
+        spread <= 0.35f -> "整体接近匀速跑，节奏分布较稳定。"
+        secondHalfAvg - firstHalfAvg > 0.25f -> "前快后慢，后程出现明显掉速。"
+        firstHalfAvg - secondHalfAvg > 0.25f -> "后程提速明显，节奏后半段更积极。"
+        else -> "节奏波动较大，建议训练中加强配速控制。"
+    }
+}
+
+@Composable
 private fun RunSplitsSection(
     splits: List<RunSplit>,
     palette: MetricsPalette,
     modifier: Modifier = Modifier
 ) {
-    val paceValues = remember(splits) { splits.map { it.paceMinPerKm } }
+    val fullKmSplits = remember(splits) { splits.filter { it.distanceMeters >= 1000 } }
+    val tailSplit = remember(splits) { splits.lastOrNull()?.takeIf { it.distanceMeters < 1000 } }
+    val displaySplits = if (fullKmSplits.isNotEmpty()) fullKmSplits else splits
+    val paceValues = displaySplits.map { it.paceMinPerKm }.filter { it > 0f }
     val fastest = paceValues.minOrNull() ?: 0f
     val slowest = paceValues.maxOrNull() ?: 0f
-    val average = if (paceValues.isNotEmpty()) paceValues.average().toFloat() else 0f
-    val cumulativeTimes = remember(splits) {
-        val totals = ArrayList<Long>(splits.size)
+    val slowestIndex = displaySplits.indices.maxByOrNull { displaySplits[it].paceMinPerKm } ?: -1
+    val cumulativeTimes = remember(displaySplits) {
+        val totals = ArrayList<Long>(displaySplits.size)
         var runningTotal = 0L
-        splits.forEach { split ->
+        displaySplits.forEach { split ->
             runningTotal += split.durationMs
             totals.add(runningTotal)
         }
         totals
     }
+    val firstBlock = displaySplits.take(5)
+    val lastBlock = displaySplits.takeLast(5)
 
     SectionCard(
-        title = "配速",
+        title = "公里分段分析",
         palette = palette,
-        modifier = modifier,
-        trailing = "更多 >"
+        modifier = modifier
     ) {
-        PaceSummaryRow(
-            slowest = formatPaceLabel(slowest),
-            average = formatPaceLabel(average),
-            fastest = formatPaceLabel(fastest),
+        SplitAverageSummaryRow(
+            firstHalfLabel = if (firstBlock.size >= 5) "前5公里" else "前${firstBlock.size}公里",
+            firstHalfValue = formatPaceLabel(averagePace(firstBlock) ?: 0f),
+            secondHalfLabel = if (lastBlock.size >= 5) "后5公里" else "后${lastBlock.size}公里",
+            secondHalfValue = formatPaceLabel(averagePace(lastBlock) ?: 0f),
+            overallLabel = "${displaySplits.size}公里均配",
+            overallValue = formatPaceLabel(averagePace(displaySplits) ?: 0f),
             palette = palette
         )
         Spacer(modifier = Modifier.height(12.dp))
         SplitHeaderRow(palette = palette)
         Spacer(modifier = Modifier.height(8.dp))
 
-        splits.forEachIndexed { index, split ->
+        displaySplits.forEachIndexed { index, split ->
             val cumulativeTime = cumulativeTimes.getOrNull(index) ?: split.durationMs
             SplitRow(
                 split = split,
+                previousSplit = displaySplits.getOrNull(index - 1),
                 fastest = fastest,
                 slowest = slowest,
                 cumulativeTimeMs = cumulativeTime,
+                isSlowest = index == slowestIndex,
                 palette = palette
             )
             Spacer(modifier = Modifier.height(8.dp))
-            if (split.distanceMeters >= 1000 && split.kmIndex % 5 == 0) {
-                SplitMilestoneRow(
-                    kmMark = split.kmIndex,
-                    cumulativeTimeMs = cumulativeTime,
-                    palette = palette
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-            }
         }
+
+        tailSplit?.let { tail ->
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "最后${tail.distanceMeters}m补段：配速 ${formatPaceLabel(tail.paceMinPerKm)}，用时 ${DateTimeUtils.getFormattedStopwatchTime(tail.durationMs)}（不足1公里，未参与整公里趋势对比）",
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.textMuted
+            )
+        }
+    }
+}
+
+@Composable
+private fun SplitAverageSummaryRow(
+    firstHalfLabel: String,
+    firstHalfValue: String,
+    secondHalfLabel: String,
+    secondHalfValue: String,
+    overallLabel: String,
+    overallValue: String,
+    palette: MetricsPalette
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        SplitSummaryItem(
+            label = firstHalfLabel,
+            value = firstHalfValue,
+            valueColor = PaceFastColor,
+            palette = palette,
+            modifier = Modifier.weight(1f)
+        )
+        SplitSummaryItem(
+            label = secondHalfLabel,
+            value = secondHalfValue,
+            valueColor = PaceSlowColor,
+            palette = palette,
+            modifier = Modifier.weight(1f)
+        )
+        SplitSummaryItem(
+            label = overallLabel,
+            value = overallValue,
+            valueColor = palette.textPrimary,
+            palette = palette,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun SplitSummaryItem(
+    label: String,
+    value: String,
+    valueColor: Color,
+    palette: MetricsPalette,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+            color = valueColor
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textMuted
+        )
     }
 }
 
 @Composable
 private fun SplitRow(
     split: RunSplit,
+    previousSplit: RunSplit?,
     fastest: Float,
     slowest: Float,
     cumulativeTimeMs: Long,
+    isSlowest: Boolean,
     palette: MetricsPalette
 ) {
-    val label = if (split.distanceMeters >= 1000) {
-        split.kmIndex.toString()
-    } else {
-        "末段"
-    }
+    val label = if (split.distanceMeters >= 1000) split.kmIndex.toString() else "末段"
     val paceLabel = RunUtils.formatPace(split.paceMinPerKm)
     val timeLabel = DateTimeUtils.getFormattedStopwatchTime(cumulativeTimeMs)
     val barProgress = splitBarProgress(
@@ -837,49 +1015,66 @@ private fun SplitRow(
         fastest = fastest,
         slowest = slowest
     )
-    val barColor = splitBarColor(barProgress)
+    val baseBarColor = splitBarColor(barProgress)
+    val trend = resolveSplitTrend(previousSplit, split)
+    val barColor = if (isSlowest) PaceSlowColor else baseBarColor
+    val rowBackground = if (isSlowest) PaceSlowColor.copy(alpha = 0.12f) else Color.Transparent
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+    Surface(
+        color = rowBackground,
+        shape = RoundedCornerShape(10.dp)
     ) {
-        Box(modifier = Modifier.width(36.dp)) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelMedium,
-                color = palette.textPrimary
-            )
-        }
-        Box(
+        Row(
             modifier = Modifier
-                .weight(1f)
-                .height(10.dp)
-                .clip(RoundedCornerShape(50))
-                .background(palette.sliderInactive)
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Box(modifier = Modifier.width(30.dp)) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = palette.textPrimary
+                )
+            }
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(barProgress)
-                    .fillMaxSize()
-                    .background(barColor)
-            )
-        }
-        Spacer(modifier = Modifier.width(10.dp))
-        Column(
-            horizontalAlignment = Alignment.End,
-            modifier = Modifier.widthIn(min = 64.dp)
-        ) {
+                    .weight(1f)
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(palette.sliderInactive)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(barProgress)
+                        .fillMaxSize()
+                        .background(barColor)
+                )
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(
+                horizontalAlignment = Alignment.End,
+                modifier = Modifier.widthIn(min = 72.dp)
+            ) {
+                Text(
+                    text = paceLabel,
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = barColor,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = timeLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = palette.textMuted
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = paceLabel,
-                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                color = barColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = timeLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = palette.textMuted
+                text = "${trend.symbol} ${trend.label}",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = trend.color,
+                modifier = Modifier.widthIn(min = 50.dp)
             )
         }
     }
@@ -906,42 +1101,44 @@ private fun SplitHeaderRow(
             color = palette.textMuted,
             modifier = Modifier.weight(1f)
         )
-        Box(
-            modifier = Modifier.widthIn(min = 64.dp),
-            contentAlignment = Alignment.CenterEnd
-        ) {
+        Box(modifier = Modifier.widthIn(min = 72.dp), contentAlignment = Alignment.CenterEnd) {
             Text(
                 text = "累计用时",
                 style = MaterialTheme.typography.labelSmall,
                 color = palette.textMuted
             )
         }
+        Text(
+            text = "趋势",
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.textMuted,
+            modifier = Modifier.widthIn(min = 50.dp)
+        )
     }
 }
 
-@Composable
-private fun SplitMilestoneRow(
-    kmMark: Int,
-    cumulativeTimeMs: Long,
-    palette: MetricsPalette
-) {
-    val pace = if (kmMark > 0) (cumulativeTimeMs / 60000f) / kmMark else 0f
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "${kmMark}公里总用时：${DateTimeUtils.getFormattedStopwatchTime(cumulativeTimeMs)}",
-            style = MaterialTheme.typography.labelSmall,
-            color = palette.textMuted
-        )
-        Text(
-            text = "配速 ${formatPaceLabel(pace)}",
-            style = MaterialTheme.typography.labelSmall,
-            color = palette.textMuted
-        )
+private data class SplitTrend(
+    val symbol: String,
+    val label: String,
+    val color: Color
+)
+
+private fun resolveSplitTrend(previousSplit: RunSplit?, currentSplit: RunSplit): SplitTrend {
+    if (previousSplit == null) {
+        return SplitTrend(symbol = "·", label = "起步", color = PaceNeutralColor)
     }
+    val diff = currentSplit.paceMinPerKm - previousSplit.paceMinPerKm
+    return when {
+        diff < -0.08f -> SplitTrend(symbol = "↑", label = "提速", color = PaceFastColor)
+        diff > 0.08f -> SplitTrend(symbol = "↓", label = "掉速", color = PaceSlowColor)
+        else -> SplitTrend(symbol = "→", label = "平稳", color = PaceNeutralColor)
+    }
+}
+
+private fun averagePace(splits: List<RunSplit>): Float? {
+    val values = splits.map { it.paceMinPerKm }.filter { it > 0f }
+    if (values.isEmpty()) return null
+    return values.average().toFloat()
 }
 
 private fun smoothSeries(
