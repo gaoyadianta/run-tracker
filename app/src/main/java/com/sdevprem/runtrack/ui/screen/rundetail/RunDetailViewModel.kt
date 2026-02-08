@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sdevprem.runtrack.common.utils.RunAiAnnotationCodec
+import com.sdevprem.runtrack.common.utils.RunMetricsCalculator
 import com.sdevprem.runtrack.common.utils.RunMetricsCodec
 import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
@@ -54,7 +55,8 @@ class RunDetailViewModel @Inject constructor(
         if (detail == null) {
             RunDetailUiState(isLoading = false)
         } else {
-            val metrics = metricsEntity?.let {
+            val pathPoints = RouteEncodingUtils.decodeToPathPoints(detail.run.routePoints)
+            val persistedMetrics = metricsEntity?.let {
                 RunMetricsData(
                     paceSeries = RunMetricsCodec.decodeMetricPoints(it.paceSeries),
                     heartRateSeries = RunMetricsCodec.decodeMetricPoints(it.heartRateSeries),
@@ -64,6 +66,15 @@ class RunDetailViewModel @Inject constructor(
                     strideLengthSeries = RunMetricsCodec.decodeMetricPoints(it.strideLengthSeries)
                 )
             } ?: RunMetricsData()
+            val fallbackMetrics = RunMetricsCalculator.calculate(
+                pathPoints = pathPoints,
+                totalDurationMs = detail.run.durationInMillis
+            )
+            val metrics = persistedMetrics.copy(
+                paceSeries = persistedMetrics.paceSeries.ifEmpty { fallbackMetrics.paceSeries },
+                elevationSeries = persistedMetrics.elevationSeries.ifEmpty { fallbackMetrics.elevationSeries },
+                splits = persistedMetrics.splits.ifEmpty { fallbackMetrics.splits }
+            )
 
             val annotations = RunAiAnnotationCodec.decode(detail.traceAnnotationsJson ?: "")
 
@@ -72,7 +83,7 @@ class RunDetailViewModel @Inject constructor(
                 run = detail.run,
                 oneLiner = detail.oneLiner,
                 summary = detail.summary,
-                pathPoints = RouteEncodingUtils.decodeToPathPoints(detail.run.routePoints),
+                pathPoints = pathPoints,
                 metrics = metrics,
                 aiAnnotations = annotations,
                 compareRun = compare

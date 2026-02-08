@@ -76,17 +76,24 @@ fun MainScreen(
     var hideBottomItems by rememberSaveable { mutableStateOf(true) }
     val doesUserExist by viewModel.doesUserExist.collectAsStateWithLifecycle()
 
-    hideBottomItems = when (navBackStackEntry?.destination?.route) {
-        Destination.CurrentRun.route -> true
-        Destination.OnBoardingDestination.route -> true
-        Destination.RunStats.route -> true
+    val currentDestination = navBackStackEntry?.destination
+    val currentRoute = currentDestination?.route.orEmpty()
+    val isRunDetailDestination = currentDestination?.hierarchy?.any {
+        it.route == Destination.RunDetail.route
+    } == true
+    hideBottomItems = when {
+        currentRoute == Destination.CurrentRun.route -> true
+        currentRoute == Destination.OnBoardingDestination.route -> true
+        currentRoute == Destination.RunStats.route -> true
+        currentRoute == Destination.RunDetail.route -> true
+        isRunDetailDestination -> true
+        currentRoute.startsWith("run_detail/") -> true
         else -> false
     }
 
     LaunchedEffect(hideBottomItems) {
         if (hideBottomItems) {
             shouldShowFAB = false
-            delay(150)
             shouldShowBottomNav = false
         } else {
             shouldShowBottomNav = true

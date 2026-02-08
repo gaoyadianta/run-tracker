@@ -9,18 +9,17 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,16 +38,16 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -56,8 +55,11 @@ import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -119,6 +121,16 @@ fun RunDetailScreen(
             buildPlaybackPathPoints(state.pathPoints, playbackIndex)
         } else {
             emptyList()
+        }
+    }
+    val onPlaybackToggle: () -> Unit = {
+        if (playbackTimes.isNotEmpty()) {
+            if (isPlaybackRunning) {
+                isPlaybackRunning = false
+            } else {
+                highlightTimeMs = playbackTimes.firstOrNull() ?: 0L
+                isPlaybackRunning = true
+            }
         }
     }
 
@@ -190,24 +202,12 @@ fun RunDetailScreen(
                 val density = LocalDensity.current
                 val maxHeightPx = with(density) { maxHeight.toPx() }
                 val collapsedHeight = (maxHeight * 0.42f).coerceIn(280.dp, 360.dp)
-                val halfHeight = (maxHeight * 0.68f).coerceIn(collapsedHeight + 80.dp, maxHeight * 0.84f)
-                val expandedHeight = (maxHeight * 0.93f).coerceAtLeast(halfHeight + 120.dp)
-                    .coerceAtMost(maxHeight)
 
-                val anchors = remember(collapsedHeight, halfHeight, expandedHeight, maxHeightPx) {
+                val anchors = remember(collapsedHeight, maxHeightPx) {
                     SheetAnchors(
                         collapsed = maxHeightPx - with(density) { collapsedHeight.toPx() },
-                        half = maxHeightPx - with(density) { halfHeight.toPx() },
-                        expanded = maxHeightPx - with(density) { expandedHeight.toPx() }
+                        expanded = 0f
                     )
-                }
-
-                var sheetOffset by remember { mutableStateOf(anchors.collapsed) }
-                LaunchedEffect(anchors) {
-                    sheetOffset = sheetOffset.coerceIn(anchors.expanded, anchors.collapsed)
-                }
-                val onSheetOffsetChange: (Float) -> Unit = { next ->
-                    sheetOffset = next.coerceIn(anchors.expanded, anchors.collapsed)
                 }
 
                 val shareAction: (ShareTarget, ShareMode) -> Unit = shareAction@{ target, mode ->
@@ -314,17 +314,35 @@ fun RunDetailScreen(
                             )
                         }
                     }
+                    Button(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = topInset + 58.dp, end = 8.dp),
+                        enabled = playbackTimes.isNotEmpty(),
+                        onClick = onPlaybackToggle,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xD91B1F24),
+                            contentColor = Color.White
+                        ),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = ImageVector.vectorResource(
+                                id = if (isPlaybackRunning) R.drawable.ic_pause else R.drawable.ic_play
+                            ),
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(text = if (isPlaybackRunning) "暂停轨迹" else "动态轨迹")
+                    }
 
                     RunHistoryBottomSheet(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .offset { IntOffset(0, sheetOffset.roundToInt()) }
-                            .height(this@BoxWithConstraints.maxHeight)
                             .fillMaxWidth(),
-                        sheetOffset = sheetOffset,
                         minOffsetPx = anchors.expanded,
                         maxOffsetPx = anchors.collapsed,
-                        onSheetOffsetChange = onSheetOffsetChange,
                         run = state.run,
                         metrics = state.metrics,
                         oneLiner = state.oneLiner,
@@ -333,23 +351,11 @@ fun RunDetailScreen(
                         annotations = state.aiAnnotations,
                         highlightTimeMs = highlightTimeMs,
                         onHighlightTimeChange = { highlightTimeMs = it },
-                        isPlaybackRunning = isPlaybackRunning,
                         isSharing = isSharing,
                         shareTarget = shareTarget,
                         shareMode = shareMode,
                         onShareTargetClick = { target ->
                             shareAction(target, shareMode)
-                        },
-                        onPlaybackToggle = {
-                            if (playbackTimes.isEmpty()) return@RunHistoryBottomSheet
-                            if (isPlaybackRunning) {
-                                isPlaybackRunning = false
-                            } else {
-                                if (playbackIndex >= playbackTimes.lastIndex) {
-                                    highlightTimeMs = 0L
-                                }
-                                isPlaybackRunning = true
-                            }
                         },
                         onShareTargetChange = { shareTarget = it },
                         onShareModeChange = { shareMode = it },
@@ -507,19 +513,14 @@ private enum class ShareMode {
 
 private data class SheetAnchors(
     val collapsed: Float,
-    val half: Float,
     val expanded: Float
-) {
-    fun offsetForCollapsed(): Float = collapsed
-}
+)
 
 @Composable
 private fun RunHistoryBottomSheet(
     modifier: Modifier,
-    sheetOffset: Float,
     minOffsetPx: Float,
     maxOffsetPx: Float,
-    onSheetOffsetChange: (Float) -> Unit,
     run: com.sdevprem.runtrack.data.model.Run?,
     metrics: com.sdevprem.runtrack.domain.model.RunMetricsData,
     oneLiner: String?,
@@ -528,127 +529,144 @@ private fun RunHistoryBottomSheet(
     annotations: List<RunAiAnnotationPoint>,
     highlightTimeMs: Long,
     onHighlightTimeChange: (Long) -> Unit,
-    isPlaybackRunning: Boolean,
     isSharing: Boolean,
     shareTarget: ShareTarget,
     shareMode: ShareMode,
     onShareTargetClick: (ShareTarget) -> Unit,
-    onPlaybackToggle: () -> Unit,
     onShareTargetChange: (ShareTarget) -> Unit,
     onShareModeChange: (ShareMode) -> Unit,
     onShareClick: () -> Unit
 ) {
-    val sheetOffsetState = rememberUpdatedState(sheetOffset)
-    val minOffsetState = rememberUpdatedState(minOffsetPx)
-    val maxOffsetState = rememberUpdatedState(maxOffsetPx)
-    val draggableState = rememberDraggableState { delta ->
-        val newOffset = (sheetOffsetState.value + delta)
-            .coerceIn(minOffsetState.value, maxOffsetState.value)
-        onSheetOffsetChange(newOffset)
+    var sheetOffset by remember(maxOffsetPx) {
+        mutableFloatStateOf(maxOffsetPx)
+    }
+    val scrollState = rememberScrollState()
+
+    fun consumeSheetDelta(delta: Float): Float {
+        val old = sheetOffset
+        val newOffset = (old + delta).coerceIn(minOffsetPx, maxOffsetPx)
+        sheetOffset = newOffset
+        return newOffset - old
+    }
+
+    val nestedScrollConnection = remember(minOffsetPx, maxOffsetPx) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                val delta = available.y
+                if (delta < 0f && sheetOffset > minOffsetPx) {
+                    return Offset(x = 0f, y = consumeSheetDelta(delta))
+                }
+                if (delta > 0f && scrollState.value == 0 && sheetOffset < maxOffsetPx) {
+                    return Offset(x = 0f, y = consumeSheetDelta(delta))
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                val delta = available.y
+                if (delta > 0f && scrollState.value == 0 && sheetOffset < maxOffsetPx) {
+                    return Offset(x = 0f, y = consumeSheetDelta(delta))
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
+    LaunchedEffect(minOffsetPx, maxOffsetPx) {
+        sheetOffset = sheetOffset.coerceIn(minOffsetPx, maxOffsetPx)
     }
 
     Surface(
-        modifier = modifier,
+        modifier = modifier
+            .fillMaxHeight()
+            .graphicsLayer {
+                translationY = sheetOffset
+            }
+            .nestedScroll(nestedScrollConnection),
         color = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 8.dp,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     ) {
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .draggable(
-                    state = draggableState,
-                    orientation = Orientation.Vertical,
-                    enabled = true
-                )
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
             SheetHandle(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 8.dp)
+                    .align(Alignment.CenterHorizontally)
             )
+            Spacer(modifier = Modifier.height(12.dp))
 
-            Column(
+            PrimaryRunSummaryCard(
+                run = run,
+                metrics = metrics
+            )
+            selectedAnnotation?.let { annotation ->
+                Spacer(modifier = Modifier.height(12.dp))
+                AnnotationCard(annotation = annotation)
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            RunMetricsSection(
+                metrics = metrics,
+                annotations = annotations,
+                highlightTimeMs = highlightTimeMs,
+                onHighlightTimeChange = onHighlightTimeChange
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            AiRecapCard(oneLiner = oneLiner, summary = summary)
+            Spacer(modifier = Modifier.height(16.dp))
+            ShareOptionsSection(
+                shareTarget = shareTarget,
+                shareMode = shareMode,
+                isSharing = isSharing,
+                onShareTargetClick = onShareTargetClick,
+                onShareTargetChange = onShareTargetChange,
+                onShareModeChange = onShareModeChange
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            if (isSharing) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val textPrimary = MaterialTheme.colorScheme.onSurface
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = textPrimary
+                    )
+                    Text(
+                        text = "Preparing share...",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = textPrimary.copy(alpha = 0.85f)
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            Button(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .padding(top = 24.dp, bottom = 96.dp)
+                    .heightIn(min = 48.dp),
+                enabled = !isSharing,
+                onClick = onShareClick,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFE9424A),
+                    contentColor = Color.White
+                )
             ) {
-                PrimaryRunSummaryCard(
-                    run = run,
-                    metrics = metrics,
-                    isPlaybackRunning = isPlaybackRunning,
-                    onPlaybackToggle = onPlaybackToggle
-                )
-
-                selectedAnnotation?.let { annotation ->
-                    Spacer(modifier = Modifier.height(12.dp))
-                    AnnotationCard(annotation = annotation)
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                RunMetricsSection(
-                    metrics = metrics,
-                    annotations = annotations,
-                    highlightTimeMs = highlightTimeMs,
-                    onHighlightTimeChange = onHighlightTimeChange
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                AiRecapCard(oneLiner = oneLiner, summary = summary)
-                Spacer(modifier = Modifier.height(16.dp))
-                ShareOptionsSection(
-                    shareTarget = shareTarget,
-                    shareMode = shareMode,
-                    isSharing = isSharing,
-                    onShareTargetClick = onShareTargetClick,
-                    onShareTargetChange = onShareTargetChange,
-                    onShareModeChange = onShareModeChange
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
+                Text(text = "分享记录", style = MaterialTheme.typography.titleSmall)
             }
-
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(horizontal = 16.dp, vertical = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                if (isSharing) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        val textPrimary = MaterialTheme.colorScheme.onSurface
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                            color = textPrimary
-                        )
-                        Text(
-                            text = "Preparing share...",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = textPrimary.copy(alpha = 0.85f)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-
-                Button(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 48.dp),
-                    enabled = !isSharing,
-                    onClick = onShareClick,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFFE9424A),
-                        contentColor = Color.White
-                    )
-                ) {
-                    Text(text = "分享记录", style = MaterialTheme.typography.titleSmall)
-                }
-            }
+            Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
@@ -668,9 +686,7 @@ private fun SheetHandle(
 @Composable
 private fun PrimaryRunSummaryCard(
     run: com.sdevprem.runtrack.data.model.Run?,
-    metrics: com.sdevprem.runtrack.domain.model.RunMetricsData,
-    isPlaybackRunning: Boolean,
-    onPlaybackToggle: () -> Unit
+    metrics: com.sdevprem.runtrack.domain.model.RunMetricsData
 ) {
     val dateFormatter = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
@@ -748,59 +764,6 @@ private fun PrimaryRunSummaryCard(
                     style = MaterialTheme.typography.titleSmall,
                     color = textMuted
                 )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(116.dp)
-                    .clip(RoundedCornerShape(14.dp))
-            ) {
-                if (run != null) {
-                    Image(
-                        bitmap = run.img.asImageBitmap(),
-                        contentDescription = "route thumbnail",
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color(0xFF2B313A)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "路线缩略图",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = textMuted
-                        )
-                    }
-                }
-
-                Button(
-                    onClick = onPlaybackToggle,
-                    enabled = run != null,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(10.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xD91B1F24),
-                        contentColor = Color.White
-                    )
-                ) {
-                    Icon(
-                        imageVector = ImageVector.vectorResource(
-                            id = if (isPlaybackRunning) R.drawable.ic_pause else R.drawable.ic_play
-                        ),
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = if (isPlaybackRunning) "暂停轨迹" else "查看动态轨迹")
-                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
