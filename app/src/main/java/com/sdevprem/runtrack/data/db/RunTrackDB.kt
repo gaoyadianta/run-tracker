@@ -15,7 +15,7 @@ import com.sdevprem.runtrack.data.model.Run
 
 @Database(
     entities = [Run::class, RunAiArtifact::class, RunMetricsEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 
@@ -72,6 +72,17 @@ abstract class RunTrackDB : RoomDatabase() {
                         "PRIMARY KEY(runId), " +
                         "FOREIGN KEY(runId) REFERENCES running_table(id) ON DELETE CASCADE" +
                         ")"
+                )
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE run_metrics ADD COLUMN cadenceSeries TEXT NOT NULL DEFAULT ''"
+                )
+                database.execSQL(
+                    "ALTER TABLE run_metrics ADD COLUMN strideLengthSeries TEXT NOT NULL DEFAULT ''"
                 )
             }
         }

@@ -37,6 +37,12 @@ data class RunningContext(
             append("当前配速${String.format("%.1f", currentPaceKmh)}公里/小时，")
             append("消耗卡路里${caloriesBurned}卡。")
 
+            val stepState = currentRunState.currentRunState
+            if (stepState.isStepSensorAvailable && stepState.totalSteps > 0) {
+                append("累计${stepState.totalSteps}步，")
+                append("当前步频${String.format("%.0f", stepState.stepsPerMinute)}步/分钟。")
+            }
+
             if (targetDistance > 0) {
                 val progress = (distanceKm / targetDistance * 100).toInt()
                 append("目标距离${targetDistance}公里，完成进度${progress}%。")

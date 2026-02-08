@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.Manifest
 import androidx.core.content.ContextCompat
 import com.sdevprem.runtrack.common.utils.PermissionUtils
 
@@ -25,6 +26,17 @@ fun Context.hasLocationPermission() =
             it
         ) == PackageManager.PERMISSION_GRANTED
     }
+
+fun Context.hasActivityRecognitionPermission() =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.ACTIVITY_RECOGNITION
+        ) == PackageManager.PERMISSION_GRANTED
+    } else true
+
+fun Context.hasRunTrackingPermissions() =
+    hasLocationPermission() && hasActivityRecognitionPermission()
 
 fun Context.hasAllPermission() =
     PermissionUtils.allPermissions.all {

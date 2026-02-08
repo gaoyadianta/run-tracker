@@ -22,5 +22,7 @@ data class RunMetricsEntity(
     val heartRateSeries: String = "",
     val elevationSeries: String = "",
     val splits: String = "",
+    val cadenceSeries: String = "",
+    val strideLengthSeries: String = "",
     val updatedAtEpochMs: Long = System.currentTimeMillis()
 )

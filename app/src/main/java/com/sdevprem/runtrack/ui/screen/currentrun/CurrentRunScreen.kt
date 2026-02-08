@@ -36,6 +36,7 @@ import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import com.sdevprem.runtrack.R
 import com.sdevprem.runtrack.common.extension.hasLocationPermission
+import com.sdevprem.runtrack.common.extension.hasRunTrackingPermissions
 import com.sdevprem.runtrack.common.utils.PermissionUtils
 import com.sdevprem.runtrack.data.tracking.location.LocationUtils
 import com.sdevprem.runtrack.ui.common.compose.BatteryOptimizationDialog
@@ -124,10 +125,12 @@ fun CurrentRunScreen(
     }
 
     val playPauseButtonOnClick = {
-        if (context.hasLocationPermission()) {
+        if (context.hasRunTrackingPermissions()) {
             viewModel.playPauseTracking()
         } else {
-            permissionLauncher.launch(PermissionUtils.locationPermissions)
+            permissionLauncher.launch(
+                PermissionUtils.locationPermissions + PermissionUtils.activityRecognitionPermissions
+            )
         }
     }
 

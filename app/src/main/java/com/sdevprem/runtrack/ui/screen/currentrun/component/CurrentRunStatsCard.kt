@@ -77,6 +77,18 @@ fun CurrentRunStatsCard(
 private fun RunningStats(
     runState: CurrentRunStateWithCalories
 ) {
+    val stepSensorAvailable = runState.currentRunState.isStepSensorAvailable
+    val stepsLabel = if (stepSensorAvailable) {
+        runState.currentRunState.totalSteps.toString()
+    } else {
+        "--"
+    }
+    val spmLabel = if (stepSensorAvailable) {
+        String.format("%.1f", runState.currentRunState.stepsPerMinute)
+    } else {
+        "--"
+    }
+
     Column(
         modifier = Modifier
             .padding(horizontal = 20.dp)
@@ -136,7 +148,7 @@ private fun RunningStats(
                 modifier = Modifier,
                 painter = painterResource(id = R.drawable.ic_raising_hand),
                 unit = "steps",
-                value = runState.currentRunState.totalSteps.toString()
+                value = stepsLabel
             )
             VerticalDivider(
                 thickness = 1.dp,
@@ -147,18 +159,17 @@ private fun RunningStats(
                 modifier = Modifier,
                 painter = painterResource(id = R.drawable.stopwatch),
                 unit = "spm",
-                value = String.format("%.1f", runState.currentRunState.stepsPerMinute)
+                value = spmLabel
             )
             // 添加一个空白区域保持对称
             Spacer(modifier = Modifier.weight(1f))
         }
-        
-        // 调试信息 - 临时添加用于调试步数追踪问题
-        if (runState.currentRunState.totalSteps == 0 && runState.currentRunState.isTracking) {
+
+        if (!stepSensorAvailable && runState.currentRunState.isTracking) {
             Text(
-                text = "调试: 步数追踪状态为0 - 检查权限和传感器可用性",
+                text = "步数暂不可用，请开启“身体活动/步数”权限或确认设备支持计步传感器。",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 8.dp)
             )
         }

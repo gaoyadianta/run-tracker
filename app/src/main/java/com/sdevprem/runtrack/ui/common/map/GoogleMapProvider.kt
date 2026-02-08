@@ -37,6 +37,7 @@ import com.google.maps.android.compose.rememberCameraPositionState
 import com.google.maps.android.compose.rememberMarkerState
 import com.sdevprem.runtrack.R
 import com.sdevprem.runtrack.common.extension.toLatLng
+import com.sdevprem.runtrack.common.utils.LocationUtils
 import com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint
 import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.domain.tracking.model.PathPoint
@@ -227,13 +228,15 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
         drawPathSegments(
             pathPoints = pathPoints,
             color = md_theme_light_primary.copy(alpha = 0.35f),
-            width = 8f
+            width = 12f,
+            colorByPace = isRunningFinished
         )
         if (playbackPathPoints.isNotEmpty()) {
             drawPathSegments(
                 pathPoints = playbackPathPoints,
                 color = md_theme_light_primary,
-                width = 12f
+                width = 16f,
+                colorByPace = false
             )
         }
 
@@ -376,9 +379,23 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
     private fun drawPathSegments(
         pathPoints: List<PathPoint>,
         color: Color,
-        width: Float
+        width: Float,
+        colorByPace: Boolean
     ) {
         if (pathPoints.isEmpty()) return
+        if (colorByPace) {
+            val coloredSegments = buildPaceColoredSegments(pathPoints)
+            if (coloredSegments.isNotEmpty()) {
+                coloredSegments.fastForEach { segment ->
+                    Polyline(
+                        points = segment.points.map { it.toLatLng() },
+                        color = segment.color,
+                        width = width
+                    )
+                }
+                return
+            }
+        }
         val locationInfoList = mutableListOf<LocationInfo>()
         pathPoints.fastForEach { pathPoint ->
             if (pathPoint is PathPoint.EmptyLocationPoint) {
@@ -401,5 +418,104 @@ class GoogleMapProvider(private val context: Context) : MapProvider {
                 width = width
             )
         }
+    }
+
+    private data class PacePiece(
+        val start: LocationInfo,
+        val end: LocationInfo,
+        val pace: Float,
+        val breakBefore: Boolean
+    )
+
+    private data class ColoredSegment(
+        val points: List<LocationInfo>,
+        val color: Color
+    )
+
+    private fun buildPaceColoredSegments(pathPoints: List<PathPoint>): List<ColoredSegment> {
+        val pieces = mutableListOf<PacePiece>()
+        var prev: PathPoint.LocationPoint? = null
+        var breakBefore = false
+        val fallbackIntervalMs = 3000L
+
+        pathPoints.fastForEach { point ->
+            when (point) {
+                is PathPoint.EmptyLocationPoint -> {
+                    prev = null
+                    breakBefore = true
+                }
+                is PathPoint.LocationPoint -> {
+                    val previous = prev
+                    if (previous != null) {
+                        val distance = LocationUtils.getDistanceBetweenPathPoints(previous, point)
+                        val rawDelta = point.locationInfo.timeMs - previous.locationInfo.timeMs
+                        val deltaTime = if (rawDelta > 0L) rawDelta else fallbackIntervalMs
+                        if (distance > 0) {
+                            val pace = (deltaTime / 60000f) / (distance / 1000f)
+                            pieces.add(PacePiece(previous.locationInfo, point.locationInfo, pace, breakBefore))
+                        }
+                    }
+                    breakBefore = false
+                    prev = point
+                }
+            }
+        }
+
+        if (pieces.isEmpty()) return emptyList()
+
+        val minPace = pieces.minOf { it.pace }
+        val maxPace = pieces.maxOf { it.pace }
+        val bucketCount = 6
+        val segments = mutableListOf<ColoredSegment>()
+        var currentBucket = -1
+        var currentPoints = mutableListOf<LocationInfo>()
+        var currentColor: Color? = null
+
+        pieces.forEach { piece ->
+            val t = if (maxPace == minPace) 0.5f else ((piece.pace - minPace) / (maxPace - minPace))
+                .coerceIn(0f, 1f)
+            val bucket = kotlin.math.round(t * (bucketCount - 1)).toInt()
+            val color = paceColorForBucket(bucket, bucketCount)
+
+            if (piece.breakBefore || currentBucket == -1 || bucket != currentBucket) {
+                if (currentPoints.size >= 2 && currentColor != null) {
+                    segments.add(ColoredSegment(currentPoints.toList(), currentColor!!))
+                }
+                currentPoints = mutableListOf(piece.start, piece.end)
+                currentBucket = bucket
+                currentColor = color
+            } else {
+                currentPoints.add(piece.end)
+            }
+        }
+
+        if (currentPoints.size >= 2 && currentColor != null) {
+            segments.add(ColoredSegment(currentPoints.toList(), currentColor!!))
+        }
+
+        return segments
+    }
+
+    private fun paceColorForBucket(bucket: Int, bucketCount: Int): Color {
+        if (bucketCount <= 1) return Color(0xFFF5C542)
+        val t = (bucket.toFloat() / (bucketCount - 1)).coerceIn(0f, 1f)
+        val green = Color(0xFF2ECC71)
+        val yellow = Color(0xFFF5C542)
+        val red = Color(0xFFE74C3C)
+        return if (t <= 0.5f) {
+            lerpColor(green, yellow, t / 0.5f)
+        } else {
+            lerpColor(yellow, red, (t - 0.5f) / 0.5f)
+        }
+    }
+
+    private fun lerpColor(start: Color, end: Color, t: Float): Color {
+        val clamped = t.coerceIn(0f, 1f)
+        return Color(
+            red = start.red + (end.red - start.red) * clamped,
+            green = start.green + (end.green - start.green) * clamped,
+            blue = start.blue + (end.blue - start.blue) * clamped,
+            alpha = 1f
+        )
     }
 }

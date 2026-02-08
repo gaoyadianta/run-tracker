@@ -1021,7 +1021,31 @@ class AIRunningCompanionManager @Inject constructor(
     }
     
     private fun buildPrompt(type: AIBroadcastType, context: RunningContext): String {
-        return "${type.prompt}\n\n${context.toAIContext()}"
+        val styleHint = when (type) {
+            AIBroadcastType.PACE_REMINDER -> listOf(
+                "像朋友轻声提醒，语气自然",
+                "像教练给口令，简短有力",
+                "强调呼吸和放松，避免紧张",
+                "从步频或步幅角度给建议",
+                "用鼓励式表达，保持积极"
+            ).random()
+            AIBroadcastType.PROFESSIONAL_ADVICE -> listOf(
+                "聚焦一个可执行的小建议",
+                "结合配速与步频给训练提示",
+                "优先提示姿态与呼吸节奏",
+                "强调节奏感与能量分配"
+            ).random()
+            else -> ""
+        }
+        return buildString {
+            append(type.prompt)
+            if (styleHint.isNotBlank()) {
+                append("\n风格提示：")
+                append(styleHint)
+            }
+            append("\n\n")
+            append(context.toAIContext())
+        }
     }
     
     /**

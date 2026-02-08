@@ -21,7 +21,7 @@ enum class AIBroadcastType(val description: String, val prompt: String) {
     
     PACE_REMINDER(
         "配速提醒",
-        "根据用户当前的配速情况，给出适当的提醒。如果配速过快，提醒放慢节奏；如果配速过慢，鼓励适当加速。语言要温和友善。回复控制在30字以内。"
+        "根据用户当前的配速与步频，给出不同角度的提醒，避免只说“快/慢”。可从呼吸、步频、步幅、放松、节奏感中任选一项给具体建议；配速过快提醒稳住节奏，过慢则鼓励提速。语言温和友善，30字以内。"
     ),
     
     WEATHER_REMINDER(

@@ -29,8 +29,11 @@ import com.amap.api.maps.model.BitmapDescriptor
 import com.amap.api.maps.model.CameraPosition
 import com.amap.api.maps.model.LatLng
 import com.amap.api.maps.model.MarkerOptions
+import com.amap.api.maps.model.Marker
+import com.amap.api.maps.model.Polyline
 import com.amap.api.maps.model.PolylineOptions
 import com.sdevprem.runtrack.R
+import com.sdevprem.runtrack.common.utils.LocationUtils
 import com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint
 import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.domain.tracking.model.PathPoint
@@ -67,10 +70,68 @@ class AmapProvider(private val context: Context) : MapProvider {
         val density = LocalDensity.current
         var latestAnnotations by remember { mutableStateOf<List<RunAiAnnotationPoint>>(emptyList()) }
         latestAnnotations = annotations
+
+        var basePolylines by remember { mutableStateOf<List<Polyline>>(emptyList()) }
+        var playbackPolyline by remember { mutableStateOf<Polyline?>(null) }
+        var startMarker by remember { mutableStateOf<Marker?>(null) }
+        var endMarker by remember { mutableStateOf<Marker?>(null) }
+        var runningOuterMarker by remember { mutableStateOf<Marker?>(null) }
+        var runningInnerMarker by remember { mutableStateOf<Marker?>(null) }
+        var annotationMarkers by remember { mutableStateOf<List<Marker>>(emptyList()) }
+        var highlightMarker by remember { mutableStateOf<Marker?>(null) }
         
         val largeLocationIconSize = remember { with(density) { 32.dp.toPx().toInt() } }
         val smallLocationIconSize = remember { with(density) { 16.dp.toPx().toInt() } }
         val flagSize = remember { with(density) { 32.dp.toPx().toInt() } }
+        val highlightIconSize = remember { with(density) { 16.dp.toPx().toInt() } }
+        val startIcon = remember {
+            AmapUtils.bitmapDescriptorFromVector(
+                context = context,
+                vectorResId = R.drawable.ic_location_marker,
+                tint = RTColor.CHATEAU_GREEN.toArgb(),
+                sizeInPx = flagSize
+            )
+        }
+        val finishIcon = remember {
+            AmapUtils.bitmapDescriptorFromVector(
+                context = context,
+                vectorResId = R.drawable.ic_location_marker,
+                tint = Color.Red.toArgb(),
+                sizeInPx = flagSize
+            )
+        }
+        val runningOuterIcon = remember {
+            AmapUtils.bitmapDescriptorFromVector(
+                context = context,
+                vectorResId = R.drawable.ic_circle,
+                tint = md_theme_light_primary.copy(alpha = 0.4f).toArgb(),
+                sizeInPx = largeLocationIconSize
+            )
+        }
+        val runningInnerIcon = remember {
+            AmapUtils.bitmapDescriptorFromVector(
+                context = context,
+                vectorResId = R.drawable.ic_circle,
+                tint = md_theme_light_primary.toArgb(),
+                sizeInPx = smallLocationIconSize
+            )
+        }
+        val annotationIcon = remember {
+            AmapUtils.bitmapDescriptorFromVector(
+                context = context,
+                vectorResId = R.drawable.ic_circle_hollow,
+                tint = md_theme_light_primary.toArgb(),
+                sizeInPx = smallLocationIconSize
+            )
+        }
+        val highlightIcon = remember {
+            AmapUtils.bitmapDescriptorFromVector(
+                context = context,
+                vectorResId = R.drawable.ic_circle,
+                tint = md_theme_light_primary.toArgb(),
+                sizeInPx = highlightIconSize
+            )
+        }
         
         val lastLocationPoint by remember(pathPoints) {
             derivedStateOf { pathPoints.lasLocationPoint() }
@@ -114,7 +175,7 @@ class AmapProvider(private val context: Context) : MapProvider {
             }
         }
 
-        LaunchedEffect(pathPoints, fitRouteOnLoad, mapSize) {
+        LaunchedEffect(aMap, pathPoints, fitRouteOnLoad, mapSize) {
             if (!fitRouteOnLoad || pathPoints.size < 2) return@LaunchedEffect
             if (mapSize.width <= 0f || mapSize.height <= 0f) return@LaunchedEffect
             val boundsBuilder = com.amap.api.maps.model.LatLngBounds.Builder()
@@ -141,44 +202,122 @@ class AmapProvider(private val context: Context) : MapProvider {
         }
 
         // Handle path drawing and markers
-        LaunchedEffect(pathPoints, playbackPathPoints, isRunningFinished, highlightLocation) {
+        LaunchedEffect(aMap, pathPoints, isRunningFinished, annotations) {
             aMap?.let { map ->
-                // Clear previous overlays
-                map.clear()
-                
-                // Draw path lines
-                drawPathLines(
-                    map,
-                    pathPoints,
-                    md_theme_light_primary.copy(alpha = 0.35f).toArgb(),
-                    8f
-                )
-                if (playbackPathPoints.isNotEmpty()) {
+                basePolylines.forEach { it.remove() }
+                basePolylines = emptyList()
+
+                startMarker?.remove()
+                endMarker?.remove()
+                runningOuterMarker?.remove()
+                runningInnerMarker?.remove()
+                annotationMarkers.forEach { it.remove() }
+                startMarker = null
+                endMarker = null
+                runningOuterMarker = null
+                runningInnerMarker = null
+                annotationMarkers = emptyList()
+
+                basePolylines = if (isRunningFinished) {
+                    drawPaceColoredLines(
+                        map,
+                        pathPoints,
+                        12f
+                    )
+                } else {
                     drawPathLines(
                         map,
-                        playbackPathPoints,
-                        md_theme_light_primary.toArgb(),
+                        pathPoints,
+                        md_theme_light_primary.copy(alpha = 0.35f).toArgb(),
                         12f
                     )
                 }
-                
-                // Add markers
-                addMarkers(
-                    map,
-                    firstLocationPoint,
-                    lastLocationPoint,
-                    isRunningFinished,
-                    largeLocationIconSize,
-                    smallLocationIconSize,
-                    flagSize,
-                    annotations,
-                    highlightLocation
-                )
+
+                firstLocationPoint?.let { startPoint ->
+                    startMarker = map.addMarker(
+                        MarkerOptions()
+                            .position(AmapUtils.toAmapLatLng(startPoint.locationInfo))
+                            .icon(startIcon)
+                    )
+                }
+
+                lastLocationPoint?.let { endPoint ->
+                    if (isRunningFinished) {
+                        endMarker = map.addMarker(
+                            MarkerOptions()
+                                .position(AmapUtils.toAmapLatLng(endPoint.locationInfo))
+                                .icon(finishIcon)
+                        )
+                    } else {
+                        runningOuterMarker = map.addMarker(
+                            MarkerOptions()
+                                .position(AmapUtils.toAmapLatLng(endPoint.locationInfo))
+                                .icon(runningOuterIcon)
+                        )
+                        runningInnerMarker = map.addMarker(
+                            MarkerOptions()
+                                .position(AmapUtils.toAmapLatLng(endPoint.locationInfo))
+                                .icon(runningInnerIcon)
+                        )
+                    }
+                }
+
+                annotationMarkers = annotations.map { annotation ->
+                    map.addMarker(
+                        MarkerOptions()
+                            .position(LatLng(annotation.latitude, annotation.longitude))
+                            .icon(annotationIcon)
+                            .title(annotation.text)
+                    )
+                }
+            }
+        }
+
+        LaunchedEffect(aMap, playbackPathPoints) {
+            aMap?.let { map ->
+                val playbackLocations = playbackPathPoints.filterIsInstance<PathPoint.LocationPoint>()
+                if (playbackLocations.size < 2) {
+                    playbackPolyline?.remove()
+                    playbackPolyline = null
+                    return@LaunchedEffect
+                }
+                val latLngs = playbackLocations.map { AmapUtils.toAmapLatLng(it.locationInfo) }
+                if (playbackPolyline == null) {
+                    playbackPolyline = map.addPolyline(
+                        PolylineOptions()
+                            .addAll(latLngs)
+                            .color(md_theme_light_primary.toArgb())
+                            .width(16f)
+                    )
+                } else {
+                    playbackPolyline?.points = latLngs
+                }
+            }
+        }
+
+        LaunchedEffect(aMap, highlightLocation) {
+            aMap?.let { map ->
+                val target = highlightLocation
+                if (target == null) {
+                    highlightMarker?.remove()
+                    highlightMarker = null
+                    return@LaunchedEffect
+                }
+                val position = AmapUtils.toAmapLatLng(target)
+                if (highlightMarker == null) {
+                    highlightMarker = map.addMarker(
+                        MarkerOptions()
+                            .position(position)
+                            .icon(highlightIcon)
+                    )
+                } else {
+                    highlightMarker?.position = position
+                }
             }
         }
 
         // Handle screenshot
-        LaunchedEffect(isRunningFinished) {
+        LaunchedEffect(isRunningFinished, aMap) {
             if (isRunningFinished && aMap != null) {
                 AmapUtils.takeSnapshot(
                     aMap!!,
@@ -240,14 +379,15 @@ class AmapProvider(private val context: Context) : MapProvider {
         pathPoints: List<PathPoint>,
         color: Int,
         width: Float
-    ) {
+    ): List<Polyline> {
         val locationInfoList = mutableListOf<LocationInfo>()
+        val polylines = mutableListOf<Polyline>()
         
         pathPoints.forEach { pathPoint ->
             when (pathPoint) {
                 is PathPoint.EmptyLocationPoint -> {
                     if (locationInfoList.isNotEmpty()) {
-                        addPolyline(map, locationInfoList, color, width)
+                        polylines.add(addPolyline(map, locationInfoList, color, width))
                         locationInfoList.clear()
                     }
                 }
@@ -259,8 +399,9 @@ class AmapProvider(private val context: Context) : MapProvider {
         
         // Add the last segment
         if (locationInfoList.isNotEmpty()) {
-            addPolyline(map, locationInfoList, color, width)
+            polylines.add(addPolyline(map, locationInfoList, color, width))
         }
+        return polylines
     }
 
     private fun addPolyline(
@@ -268,113 +409,136 @@ class AmapProvider(private val context: Context) : MapProvider {
         locationInfoList: List<LocationInfo>,
         color: Int,
         width: Float
-    ) {
+    ): Polyline {
         val polylineOptions = PolylineOptions()
             .addAll(locationInfoList.map { AmapUtils.toAmapLatLng(it) })
             .color(color)
             .width(width)
         
-        map.addPolyline(polylineOptions)
+        return map.addPolyline(polylineOptions)
     }
 
-    private fun addMarkers(
+    private data class PacePiece(
+        val start: LocationInfo,
+        val end: LocationInfo,
+        val pace: Float,
+        val breakBefore: Boolean
+    )
+
+    private data class ColoredSegment(
+        val points: List<LocationInfo>,
+        val color: Int
+    )
+
+    private fun drawPaceColoredLines(
         map: AMap,
-        firstLocationPoint: PathPoint.LocationPoint?,
-        lastLocationPoint: PathPoint.LocationPoint?,
-        isRunningFinished: Boolean,
-        largeLocationIconSize: Int,
-        smallLocationIconSize: Int,
-        flagSize: Int,
-        annotations: List<RunAiAnnotationPoint>,
-        highlightLocation: LocationInfo?
-    ) {
-        // Add start marker
-        firstLocationPoint?.let { startPoint ->
-            val startIcon = AmapUtils.bitmapDescriptorFromVector(
-                context = context,
-                vectorResId = R.drawable.ic_location_marker,
-                tint = RTColor.CHATEAU_GREEN.toArgb(),
-                sizeInPx = flagSize
-            )
-            
-            map.addMarker(
-                MarkerOptions()
-                    .position(AmapUtils.toAmapLatLng(startPoint.locationInfo))
-                    .icon(startIcon)
+        pathPoints: List<PathPoint>,
+        width: Float
+    ): List<Polyline> {
+        val segments = buildPaceColoredSegments(pathPoints)
+        if (segments.isEmpty()) {
+            return drawPathLines(
+                map,
+                pathPoints,
+                md_theme_light_primary.copy(alpha = 0.35f).toArgb(),
+                width
             )
         }
+        return segments.map { segment ->
+            map.addPolyline(
+                PolylineOptions()
+                    .addAll(segment.points.map { AmapUtils.toAmapLatLng(it) })
+                    .color(segment.color)
+                    .width(width)
+            )
+        }
+    }
 
-        // Add current position marker
-        lastLocationPoint?.let { endPoint ->
-            val currentPosIcon = if (!isRunningFinished) {
-                // Large circle for running state
-                AmapUtils.bitmapDescriptorFromVector(
-                    context = context,
-                    vectorResId = R.drawable.ic_circle,
-                    tint = md_theme_light_primary.copy(alpha = 0.4f).toArgb(),
-                    sizeInPx = largeLocationIconSize
-                )
+    private fun buildPaceColoredSegments(pathPoints: List<PathPoint>): List<ColoredSegment> {
+        val pieces = mutableListOf<PacePiece>()
+        var prev: PathPoint.LocationPoint? = null
+        var breakBefore = false
+        val fallbackIntervalMs = 3000L
+
+        pathPoints.forEach { point ->
+            when (point) {
+                is PathPoint.EmptyLocationPoint -> {
+                    prev = null
+                    breakBefore = true
+                }
+                is PathPoint.LocationPoint -> {
+                    val previous = prev
+                    if (previous != null) {
+                        val distance = LocationUtils.getDistanceBetweenPathPoints(previous, point)
+                        val rawDelta = point.locationInfo.timeMs - previous.locationInfo.timeMs
+                        val deltaTime = if (rawDelta > 0L) rawDelta else fallbackIntervalMs
+                        if (distance > 0) {
+                            val pace = (deltaTime / 60000f) / (distance / 1000f)
+                            pieces.add(PacePiece(previous.locationInfo, point.locationInfo, pace, breakBefore))
+                        }
+                    }
+                    breakBefore = false
+                    prev = point
+                }
+            }
+        }
+
+        if (pieces.isEmpty()) return emptyList()
+
+        val minPace = pieces.minOf { it.pace }
+        val maxPace = pieces.maxOf { it.pace }
+        val bucketCount = 6
+        val segments = mutableListOf<ColoredSegment>()
+        var currentBucket = -1
+        var currentPoints = mutableListOf<LocationInfo>()
+        var currentColor: Int? = null
+
+        pieces.forEach { piece ->
+            val t = if (maxPace == minPace) 0.5f else ((piece.pace - minPace) / (maxPace - minPace))
+                .coerceIn(0f, 1f)
+            val bucket = kotlin.math.round(t * (bucketCount - 1)).toInt()
+            val color = paceColorForBucket(bucket, bucketCount)
+
+            if (piece.breakBefore || currentBucket == -1 || bucket != currentBucket) {
+                if (currentPoints.size >= 2 && currentColor != null) {
+                    segments.add(ColoredSegment(currentPoints.toList(), currentColor!!))
+                }
+                currentPoints = mutableListOf(piece.start, piece.end)
+                currentBucket = bucket
+                currentColor = color
             } else {
-                // Flag for finished state
-                AmapUtils.bitmapDescriptorFromVector(
-                    context = context,
-                    vectorResId = R.drawable.ic_location_marker,
-                    tint = Color.Red.toArgb(),
-                    sizeInPx = flagSize
-                )
-            }
-            
-            map.addMarker(
-                MarkerOptions()
-                    .position(AmapUtils.toAmapLatLng(endPoint.locationInfo))
-                    .icon(currentPosIcon)
-            )
-            
-            // Add small circle for running state
-            if (!isRunningFinished) {
-                val smallIcon = AmapUtils.bitmapDescriptorFromVector(
-                    context = context,
-                    vectorResId = R.drawable.ic_circle,
-                    tint = md_theme_light_primary.toArgb(),
-                    sizeInPx = smallLocationIconSize
-                )
-                
-                map.addMarker(
-                    MarkerOptions()
-                        .position(AmapUtils.toAmapLatLng(endPoint.locationInfo))
-                        .icon(smallIcon)
-                )
+                currentPoints.add(piece.end)
             }
         }
 
-        val annotationIcon = AmapUtils.bitmapDescriptorFromVector(
-            context = context,
-            vectorResId = R.drawable.ic_circle_hollow,
-            tint = md_theme_light_primary.toArgb(),
-            sizeInPx = smallLocationIconSize
+        if (currentPoints.size >= 2 && currentColor != null) {
+            segments.add(ColoredSegment(currentPoints.toList(), currentColor!!))
+        }
+        return segments
+    }
+
+    private fun paceColorForBucket(bucket: Int, bucketCount: Int): Int {
+        if (bucketCount <= 1) return Color(0xFFF5C542).toArgb()
+        val t = (bucket.toFloat() / (bucketCount - 1)).coerceIn(0f, 1f)
+        val green = Color(0xFF2ECC71)
+        val yellow = Color(0xFFF5C542)
+        val red = Color(0xFFE74C3C)
+        val color = if (t <= 0.5f) {
+            lerpColor(green, yellow, t / 0.5f)
+        } else {
+            lerpColor(yellow, red, (t - 0.5f) / 0.5f)
+        }
+        return color.toArgb()
+    }
+
+    private fun lerpColor(start: Color, end: Color, t: Float): Color {
+        val clamped = t.coerceIn(0f, 1f)
+        return Color(
+            red = start.red + (end.red - start.red) * clamped,
+            green = start.green + (end.green - start.green) * clamped,
+            blue = start.blue + (end.blue - start.blue) * clamped,
+            alpha = 1f
         )
-        annotations.forEach { annotation ->
-            map.addMarker(
-                MarkerOptions()
-                    .position(LatLng(annotation.latitude, annotation.longitude))
-                    .icon(annotationIcon)
-                    .title(annotation.text)
-            )
-        }
-
-        highlightLocation?.let { location ->
-            val highlightIcon = AmapUtils.bitmapDescriptorFromVector(
-                context = context,
-                vectorResId = R.drawable.ic_circle,
-                tint = md_theme_light_primary.toArgb(),
-                sizeInPx = smallLocationIconSize
-            )
-            map.addMarker(
-                MarkerOptions()
-                    .position(AmapUtils.toAmapLatLng(location))
-                    .icon(highlightIcon)
-            )
-        }
     }
 
     private fun findClosestAnnotation(

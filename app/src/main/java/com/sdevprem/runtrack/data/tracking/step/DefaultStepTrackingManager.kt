@@ -63,7 +63,8 @@ class DefaultStepTrackingManager @Inject constructor(
             Timber.d("Step tracking already in progress")
             return
         }
-        
+        this.callback = callback
+
         // 检查ACTIVITY_RECOGNITION权限
         val hasPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACTIVITY_RECOGNITION) == PackageManager.PERMISSION_GRANTED
@@ -75,26 +76,25 @@ class DefaultStepTrackingManager @Inject constructor(
         
         if (!hasPermission) {
             Timber.w("ACTIVITY_RECOGNITION permission not granted, step tracking cannot start")
-            _stepTrackingInfo.value = _stepTrackingInfo.value.copy(
-                isStepSensorAvailable = false
-            )
+            val stepInfo = _stepTrackingInfo.value.copy(isStepSensorAvailable = false)
+            _stepTrackingInfo.value = stepInfo
+            callback.onStepUpdate(stepInfo)
+            this.callback = null
             return
         }
-        
-        this.callback = callback
-        isTracking = true
-        
+
         val isAvailable = stepCounterSensor != null || stepDetectorSensor != null
         
         Timber.d("Starting step tracking...")
         Timber.d("Step sensors availability - Counter: ${stepCounterSensor != null}, Detector: ${stepDetectorSensor != null}")
         
-        _stepTrackingInfo.value = _stepTrackingInfo.value.copy(
-            isStepSensorAvailable = isAvailable
-        )
+        val availabilityInfo = _stepTrackingInfo.value.copy(isStepSensorAvailable = isAvailable)
+        _stepTrackingInfo.value = availabilityInfo
+        callback.onStepUpdate(availabilityInfo)
         
         if (!isAvailable) {
             Timber.w("Step sensors not available on this device")
+            this.callback = null
             return
         }
         
@@ -108,9 +108,14 @@ class DefaultStepTrackingManager @Inject constructor(
             )
             Timber.d("Step sensor registration result: $registered for sensor type: ${it.type}")
             if (registered) {
+                isTracking = true
                 Timber.d("Step tracking started successfully")
             } else {
                 Timber.w("Failed to register step sensor listener")
+                val stepInfo = _stepTrackingInfo.value.copy(isStepSensorAvailable = false)
+                _stepTrackingInfo.value = stepInfo
+                callback.onStepUpdate(stepInfo)
+                this.callback = null
             }
         }
     }

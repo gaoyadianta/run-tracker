@@ -9,6 +9,7 @@ import com.sdevprem.runtrack.domain.tracking.model.PathPoint
 import com.sdevprem.runtrack.domain.tracking.model.StepTrackingInfo
 import com.sdevprem.runtrack.domain.tracking.step.StepTrackingManager
 import com.sdevprem.runtrack.domain.tracking.timer.TimeTracker
+import com.sdevprem.runtrack.domain.model.MetricPoint
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -24,6 +25,10 @@ class TrackingManager @Inject constructor(
     private val backgroundTrackingManager: BackgroundTrackingManager,
     private val stepTrackingManager: StepTrackingManager
 ) {
+    companion object {
+        private const val STEP_SAMPLE_INTERVAL_MS = 5_000L
+    }
+
     private var isTracking = false
         set(value) {
             _currentRunState.update { it.copy(isTracking = value) }
@@ -48,14 +53,20 @@ class TrackingManager @Inject constructor(
             _currentRunState.update { state ->
                 state.copy(
                     totalSteps = stepInfo.totalSteps,
-                    stepsPerMinute = stepInfo.stepsPerMinute
+                    stepsPerMinute = stepInfo.stepsPerMinute,
+                    isStepSensorAvailable = stepInfo.isStepSensorAvailable
                 )
             }
+            recordStepSeries(stepInfo)
         }
     }
 
     private var isFirst = true
     private var isBackgroundTrackingStarted = false
+    private val stepSeriesLock = Any()
+    private val cadenceSeries = mutableListOf<MetricPoint>()
+    private val strideLengthSeries = mutableListOf<MetricPoint>()
+    private var lastStepSeriesTimeMs = -STEP_SAMPLE_INTERVAL_MS
 
     private val locationCallback = object : LocationTrackingManager.LocationCallback {
 
@@ -87,6 +98,7 @@ class TrackingManager @Inject constructor(
             CurrentRunState()
         }
         _trackingDurationInMs.update { 0 }
+        clearStepSeries()
     }
 
     private fun addCurrentLocationPoint(info: LocationTrackingInfo) {
@@ -176,6 +188,43 @@ class TrackingManager @Inject constructor(
         timeTracker.stopTimer()
         postInitialValue()
         isFirst = true
+    }
+
+    fun getCadenceSeries(): List<MetricPoint> = synchronized(stepSeriesLock) {
+        cadenceSeries.toList()
+    }
+
+    fun getStrideLengthSeries(): List<MetricPoint> = synchronized(stepSeriesLock) {
+        strideLengthSeries.toList()
+    }
+
+    private fun clearStepSeries() = synchronized(stepSeriesLock) {
+        cadenceSeries.clear()
+        strideLengthSeries.clear()
+        lastStepSeriesTimeMs = -STEP_SAMPLE_INTERVAL_MS
+    }
+
+    private fun recordStepSeries(stepInfo: StepTrackingInfo) {
+        if (!isTracking) return
+        val timeOffsetMs = _trackingDurationInMs.value
+        if (timeOffsetMs < 0L) return
+        if (timeOffsetMs - lastStepSeriesTimeMs < STEP_SAMPLE_INTERVAL_MS) return
+        val cadence = stepInfo.stepsPerMinute
+        val speedMps = _currentRunState.value.speedInKMH / 3.6f
+        val strideLength = if (cadence > 0f) {
+            (speedMps * 60f / cadence).coerceAtLeast(0f)
+        } else {
+            0f
+        }
+        synchronized(stepSeriesLock) {
+            cadenceSeries.add(
+                MetricPoint(timeOffsetMs = timeOffsetMs, value = cadence.coerceAtLeast(0f))
+            )
+            strideLengthSeries.add(
+                MetricPoint(timeOffsetMs = timeOffsetMs, value = strideLength)
+            )
+            lastStepSeriesTimeMs = timeOffsetMs
+        }
     }
 
 }

@@ -2,6 +2,7 @@ package com.sdevprem.runtrack.ui.share
 
 import android.content.Context
 import android.content.Intent
+import android.content.ClipData
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
@@ -36,11 +37,13 @@ object ShareImageUtils {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "image/png"
             putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = ClipData.newUri(context.contentResolver, "run_share_image", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
         val chooser = Intent.createChooser(intent, title).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
 
         if (Looper.myLooper() == Looper.getMainLooper()) {

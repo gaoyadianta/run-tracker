@@ -59,7 +59,9 @@ class RunDetailViewModel @Inject constructor(
                     paceSeries = RunMetricsCodec.decodeMetricPoints(it.paceSeries),
                     heartRateSeries = RunMetricsCodec.decodeMetricPoints(it.heartRateSeries),
                     elevationSeries = RunMetricsCodec.decodeMetricPoints(it.elevationSeries),
-                    splits = RunMetricsCodec.decodeSplits(it.splits)
+                    splits = RunMetricsCodec.decodeSplits(it.splits),
+                    cadenceSeries = RunMetricsCodec.decodeMetricPoints(it.cadenceSeries),
+                    strideLengthSeries = RunMetricsCodec.decodeMetricPoints(it.strideLengthSeries)
                 )
             } ?: RunMetricsData()
 

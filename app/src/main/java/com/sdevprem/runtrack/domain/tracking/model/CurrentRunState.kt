@@ -8,5 +8,6 @@ data class CurrentRunState(
     // 新增步数相关字段
     val totalSteps: Int = 0,           // 总步数
     val stepsPerMinute: Float = 0f,    // 步频
+    val isStepSensorAvailable: Boolean = true, // 步数传感器是否可用
     val initialStepCount: Int? = null   // 记录开始跑步时的初始步数
 )

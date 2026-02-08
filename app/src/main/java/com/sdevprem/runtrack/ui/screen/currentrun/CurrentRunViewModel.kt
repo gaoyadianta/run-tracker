@@ -85,6 +85,8 @@ class CurrentRunViewModel @Inject constructor(
     private var previousPace = 0f
     private var lastRegularBroadcastTime = 0L  // 上次常规广播时间
     private val regularBroadcastInterval = 120000L // 2分钟间隔
+    private var lastPaceReminderTime = 0L
+    private val paceReminderInterval = 180000L // 配速提醒间隔：3分钟
     
     init {
         // 初始化AI陪跑管理器
@@ -298,13 +300,17 @@ class CurrentRunViewModel @Inject constructor(
                 pathPoints = pathPoints,
                 totalDurationMs = runningDurationInMillis.value
             )
+            val cadenceSeries = trackingManager.getCadenceSeries()
+            val strideLengthSeries = trackingManager.getStrideLengthSeries()
             repository.upsertRunMetrics(
                 RunMetricsEntity(
                     runId = runId,
                     paceSeries = RunMetricsCodec.encodeMetricPoints(metrics.paceSeries),
                     heartRateSeries = RunMetricsCodec.encodeMetricPoints(metrics.heartRateSeries),
                     elevationSeries = RunMetricsCodec.encodeMetricPoints(metrics.elevationSeries),
-                    splits = RunMetricsCodec.encodeSplits(metrics.splits)
+                    splits = RunMetricsCodec.encodeSplits(metrics.splits),
+                    cadenceSeries = RunMetricsCodec.encodeMetricPoints(cadenceSeries),
+                    strideLengthSeries = RunMetricsCodec.encodeMetricPoints(strideLengthSeries)
                 )
             )
 
@@ -372,11 +378,10 @@ class CurrentRunViewModel @Inject constructor(
         // 配速变化播报
         if (previousPace > 0) {
             val paceChange = kotlin.math.abs(currentPace - previousPace)
-            if (paceChange > 2f) { // 配速变化超过2km/h
+            if (paceChange > 2f && currentTime - lastPaceReminderTime >= paceReminderInterval) {
                 val runningContext = createRunningContext(runState, duration)
                 aiCompanionManager.triggerBroadcast(runningContext, AIBroadcastType.PACE_REMINDER)
-                // 配速变化触发播报后，同样重置常规广播计时
-                lastRegularBroadcastTime = currentTime
+                lastPaceReminderTime = currentTime
             }
         }
 
