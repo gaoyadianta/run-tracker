@@ -1,6 +1,7 @@
 package com.sdevprem.runtrack.ui.screen.currentrun
 
 import android.app.Activity
+import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -77,6 +78,8 @@ fun CurrentRunScreen(
         LocationUtils.checkAndRequestLocationSetting(context as Activity)
     }
     var isRunningFinished by rememberSaveable { mutableStateOf(false) }
+    var finishRequested by rememberSaveable { mutableStateOf(false) }
+    var finishHandled by rememberSaveable { mutableStateOf(false) }
     var shouldShowRunningCard by rememberSaveable { mutableStateOf(false) }
     var showBatteryOptimizationDialog by remember { mutableStateOf(false) }
     var allowAutoFollow by rememberSaveable { mutableStateOf(true) }
@@ -107,6 +110,16 @@ fun CurrentRunScreen(
         delay(8_000L)
         allowAutoFollow = true
         followLocationTrigger += 1
+    }
+
+    LaunchedEffect(finishRequested, finishHandled) {
+        if (!finishRequested || finishHandled) return@LaunchedEffect
+        delay(FINISH_SNAPSHOT_TIMEOUT_MS)
+        if (!finishHandled) {
+            finishHandled = true
+            viewModel.finishRun(createFallbackRunBitmap())
+            navController.navigateUp()
+        }
     }
 
     // 检查电池优化设置
@@ -142,8 +155,11 @@ fun CurrentRunScreen(
                 allowAutoFollow = allowAutoFollow,
                 followLocationTrigger = followLocationTrigger,
                 onSnapshot = { bitmap ->
-                    viewModel.finishRun(bitmap)
-                    navController.navigateUp()
+                    if (!finishHandled) {
+                        finishHandled = true
+                        viewModel.finishRun(bitmap)
+                        navController.navigateUp()
+                    }
                 },
                 onUserGesture = {
                     allowAutoFollow = false
@@ -194,7 +210,12 @@ fun CurrentRunScreen(
                     onPlayPauseButtonClick = playPauseButtonOnClick,
                     runState = runState,
                     durationInMillis = runningDurationInMillis,
-                    onFinish = { isRunningFinished = true }
+                    onFinish = {
+                        if (!finishRequested) {
+                            finishRequested = true
+                            isRunningFinished = true
+                        }
+                    }
             )
         }
 
@@ -208,6 +229,12 @@ fun CurrentRunScreen(
         
     }
 }
+
+private fun createFallbackRunBitmap(): Bitmap {
+    return Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+}
+
+private const val FINISH_SNAPSHOT_TIMEOUT_MS = 4_000L
 
 @Composable
 private fun TopBar(modifier: Modifier = Modifier, onNavigateUp: () -> Unit) {

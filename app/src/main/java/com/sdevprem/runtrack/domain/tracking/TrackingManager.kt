@@ -66,6 +66,7 @@ class TrackingManager @Inject constructor(
     private val stepSeriesLock = Any()
     private val cadenceSeries = mutableListOf<MetricPoint>()
     private val strideLengthSeries = mutableListOf<MetricPoint>()
+    private val totalStepsSeries = mutableListOf<MetricPoint>()
     private var lastStepSeriesTimeMs = -STEP_SAMPLE_INTERVAL_MS
 
     private val locationCallback = object : LocationTrackingManager.LocationCallback {
@@ -198,9 +199,14 @@ class TrackingManager @Inject constructor(
         strideLengthSeries.toList()
     }
 
+    fun getTotalStepsSeries(): List<MetricPoint> = synchronized(stepSeriesLock) {
+        totalStepsSeries.toList()
+    }
+
     private fun clearStepSeries() = synchronized(stepSeriesLock) {
         cadenceSeries.clear()
         strideLengthSeries.clear()
+        totalStepsSeries.clear()
         lastStepSeriesTimeMs = -STEP_SAMPLE_INTERVAL_MS
     }
 
@@ -222,6 +228,9 @@ class TrackingManager @Inject constructor(
             )
             strideLengthSeries.add(
                 MetricPoint(timeOffsetMs = timeOffsetMs, value = strideLength)
+            )
+            totalStepsSeries.add(
+                MetricPoint(timeOffsetMs = timeOffsetMs, value = stepInfo.totalSteps.toFloat())
             )
             lastStepSeriesTimeMs = timeOffsetMs
         }

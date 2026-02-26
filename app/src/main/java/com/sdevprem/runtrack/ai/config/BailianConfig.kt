@@ -57,6 +57,29 @@ class BailianConfig @Inject constructor(
             .ifBlank { DEFAULT_TTS_FORMAT }
     }
 
+    // DashScope Realtime TTS accepts codec names such as pcm/wav/mp3/opus.
+    // Keep backward compatibility with legacy format values used in project configs.
+    val ttsWireResponseFormat: String
+        get() = when (ttsResponseFormat.uppercase()) {
+            "PCM_24000HZ_MONO_16BIT",
+            "PCM_16000HZ_MONO_16BIT",
+            "PCM_8000HZ_MONO_16BIT",
+            "PCM" -> "pcm"
+            "WAV" -> "wav"
+            "MP3" -> "mp3"
+            "OPUS" -> "opus"
+            else -> "pcm"
+        }
+
+    val ttsPlaybackSampleRate: Int
+        get() = when (ttsResponseFormat.uppercase()) {
+            "PCM_16000HZ_MONO_16BIT" -> 16000
+            "PCM_8000HZ_MONO_16BIT" -> 8000
+            "PCM_24000HZ_MONO_16BIT",
+            "PCM" -> 24000
+            else -> DEFAULT_TTS_SAMPLE_RATE
+        }
+
     private val vadModeRaw: String by lazy {
         context.getString(R.string.ai_bailian_vad_mode).trim()
     }
@@ -94,6 +117,7 @@ class BailianConfig @Inject constructor(
         private const val DEFAULT_TTS_MODEL = "qwen3-tts-flash-realtime"
         private const val DEFAULT_TTS_VOICE = "Cherry"
         private const val DEFAULT_TTS_FORMAT = "PCM_24000HZ_MONO_16BIT"
+        private const val DEFAULT_TTS_SAMPLE_RATE = 24000
         private const val DEFAULT_ASR_SAMPLE_RATE = 16000
         private const val DEFAULT_VAD_SILENCE_MS = 500L
     }

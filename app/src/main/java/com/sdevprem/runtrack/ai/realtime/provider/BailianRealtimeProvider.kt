@@ -13,8 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
@@ -35,7 +34,7 @@ class BailianRealtimeProvider @Inject constructor(
     override val localVadEnabled: Boolean
         get() = config.vadMode != BailianConfig.BailianVadMode.SERVER
 
-    private val events = MutableSharedFlow<AIRealtimeProviderEvent>(extraBufferCapacity = 64)
+    private val events = MutableSharedFlow<AIRealtimeProviderEvent>(extraBufferCapacity = 128)
     private val messages = mutableListOf<Map<String, String>>()
     private val ttsBuffer = StringBuilder()
 
@@ -44,6 +43,8 @@ class BailianRealtimeProvider @Inject constructor(
     private var llmJob: Job? = null
     private var vadMonitorJob: Job? = null
     @Volatile private var lastSpeechMs: Long = 0L
+    @Volatile private var lastFinalTranscript: String = ""
+    @Volatile private var lastFinalTranscriptAtMs: Long = 0L
 
     override suspend fun connect(): Result<Unit> {
         if (!config.isConfigured()) {
@@ -79,6 +80,8 @@ class BailianRealtimeProvider @Inject constructor(
         vadMonitorJob?.cancel()
         vadMonitorJob = null
         lastSpeechMs = 0L
+        lastFinalTranscript = ""
+        lastFinalTranscriptAtMs = 0L
 
         asrClient.finish()
         ttsClient.finish()
@@ -105,12 +108,12 @@ class BailianRealtimeProvider @Inject constructor(
             try {
                 llmClient.streamChatCompletion(messagesSnapshot).collect { delta ->
                     assistantBuffer.append(delta)
-                    events.tryEmit(AIRealtimeProviderEvent.AssistantTextDelta(delta))
+                    events.emit(AIRealtimeProviderEvent.AssistantTextDelta(delta))
                     appendTtsBuffer(delta)
                 }
             } catch (e: Exception) {
                 Timber.w(e, "Bailian LLM stream failed")
-                events.tryEmit(AIRealtimeProviderEvent.Error(e.message))
+                events.emit(AIRealtimeProviderEvent.Error(e.message))
             } finally {
                 val assistantText = assistantBuffer.toString().trim()
                 if (assistantText.isNotEmpty()) {
@@ -119,7 +122,7 @@ class BailianRealtimeProvider @Inject constructor(
                     }
                 }
                 flushTtsBuffer(force = true)
-                events.tryEmit(AIRealtimeProviderEvent.AssistantCompleted("llm.done"))
+                events.emit(AIRealtimeProviderEvent.AssistantCompleted("llm.done"))
             }
         }
     }
@@ -136,10 +139,22 @@ class BailianRealtimeProvider @Inject constructor(
     private fun startAsrCollection() {
         asrJob?.cancel()
         asrJob = scope.launch {
-            asrClient.observeResults().collectLatest { result ->
-                events.tryEmit(AIRealtimeProviderEvent.UserTranscript(result.text, result.isFinal))
+            asrClient.observeResults().collect { result ->
+                events.emit(AIRealtimeProviderEvent.UserTranscript(result.text, result.isFinal))
                 if (result.isFinal && result.text.isNotBlank()) {
-                    sendText(result.text)
+                    val now = System.currentTimeMillis()
+                    val normalized = result.text.trim()
+                    if (shouldIgnoreTranscript(normalized)) {
+                        Timber.d("Ignore non-informative ASR final transcript: $normalized")
+                        return@collect
+                    }
+                    val isImmediateDuplicate = normalized == lastFinalTranscript &&
+                        now - lastFinalTranscriptAtMs <= FINAL_DUPLICATE_WINDOW_MS
+                    if (normalized.isNotBlank() && !isImmediateDuplicate) {
+                        lastFinalTranscript = normalized
+                        lastFinalTranscriptAtMs = now
+                        sendText(normalized)
+                    }
                 }
             }
         }
@@ -148,10 +163,10 @@ class BailianRealtimeProvider @Inject constructor(
     private fun startTtsCollection() {
         ttsJob?.cancel()
         ttsJob = scope.launch {
-            ttsClient.observeAudioDeltas().collectLatest { delta ->
+            ttsClient.observeAudioDeltas().collect { delta ->
                 if (delta.isNotBlank()) {
                     val audioBytes = Base64.decode(delta, Base64.DEFAULT)
-                    events.tryEmit(AIRealtimeProviderEvent.AssistantAudioDelta(audioBytes))
+                    events.emit(AIRealtimeProviderEvent.AssistantAudioDelta(audioBytes))
                 }
             }
         }
@@ -198,5 +213,61 @@ class BailianRealtimeProvider @Inject constructor(
             ttsClient.appendText(text)
             ttsBuffer.clear()
         }
+    }
+
+    companion object {
+        private const val FINAL_DUPLICATE_WINDOW_MS = 1500L
+        private val FILLER_WORDS = setOf(
+            "嗯",
+            "嗯嗯",
+            "嗯嗯嗯",
+            "啊",
+            "啊啊",
+            "呃",
+            "额",
+            "哦",
+            "噢",
+            "唔",
+            "哼",
+            "诶",
+            "欸",
+            "唉",
+            "哈",
+            "是的",
+            "好的",
+            "好吧",
+            "对",
+            "对的"
+        )
+        private val FILLER_CHARS = setOf(
+            '嗯', '啊', '呃', '额', '哦', '噢', '唔', '哼', '诶', '欸', '唉', '哈'
+        )
+        private val PUNCTUATION_CHARS = setOf(
+            '。', '，', '！', '？', '、', '；', '：', '…', '—', '-', '~', '～',
+            '.', ',', '!', '?', ';', ':', '(', ')', '[', ']', '{', '}', '"', '\'', '`'
+        )
+    }
+
+    private fun shouldIgnoreTranscript(text: String): Boolean {
+        if (text.isBlank()) return true
+        if (isPunctuationOnly(text)) return true
+
+        val canonical = text
+            .trim()
+            .replace(Regex("\\s+"), "")
+            .trim { it in PUNCTUATION_CHARS }
+            .lowercase()
+
+        if (canonical.isBlank()) return true
+        if (canonical in FILLER_WORDS) return true
+        if (canonical.length <= 3 && canonical.all { it in FILLER_CHARS }) return true
+
+        return false
+    }
+
+    private fun isPunctuationOnly(text: String): Boolean {
+        val stripped = text.trim().replace(Regex("\\s+"), "")
+        if (stripped.isBlank()) return true
+        return stripped.all { it in PUNCTUATION_CHARS }
     }
 }

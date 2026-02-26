@@ -351,6 +351,9 @@ fun RunDetailScreen(
                         annotations = state.aiAnnotations,
                         highlightTimeMs = highlightTimeMs,
                         onHighlightTimeChange = { highlightTimeMs = it },
+                        syncDurationMs = playbackTimes.lastOrNull()
+                            ?: state.run?.durationInMillis
+                            ?: 0L,
                         isSharing = isSharing,
                         shareTarget = shareTarget,
                         shareMode = shareMode,
@@ -529,6 +532,7 @@ private fun RunHistoryBottomSheet(
     annotations: List<RunAiAnnotationPoint>,
     highlightTimeMs: Long,
     onHighlightTimeChange: (Long) -> Unit,
+    syncDurationMs: Long,
     isSharing: Boolean,
     shareTarget: ShareTarget,
     shareMode: ShareMode,
@@ -620,7 +624,8 @@ private fun RunHistoryBottomSheet(
                 metrics = metrics,
                 annotations = annotations,
                 highlightTimeMs = highlightTimeMs,
-                onHighlightTimeChange = onHighlightTimeChange
+                onHighlightTimeChange = onHighlightTimeChange,
+                runDurationMs = syncDurationMs
             )
             Spacer(modifier = Modifier.height(16.dp))
             AiRecapCard(oneLiner = oneLiner, summary = summary)

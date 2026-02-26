@@ -22,7 +22,7 @@ class BailianTtsClient @Inject constructor(
         }
 
         session = BailianWebSocketSession(
-            url = config.realtimeBaseUrl,
+            url = config.buildRealtimeUrl(config.ttsModel),
             headers = mapOf(
                 "Authorization" to "Bearer ${config.apiKey}",
                 "OpenAI-Beta" to "realtime=v1"
@@ -43,12 +43,19 @@ class BailianTtsClient @Inject constructor(
 
     fun appendText(text: String) {
         if (text.isBlank()) return
-        val payload = mapOf(
+        val appendPayload = mapOf(
             "event_id" to buildEventId("text"),
             "type" to "input_text_buffer.append",
             "text" to text
         )
-        send(payload)
+        send(appendPayload)
+
+        // In current realtime behavior, explicit commit improves reliability of audio generation.
+        val commitPayload = mapOf(
+            "event_id" to buildEventId("commit"),
+            "type" to "input_text_buffer.commit"
+        )
+        send(commitPayload)
     }
 
     fun finish() {
@@ -83,7 +90,7 @@ class BailianTtsClient @Inject constructor(
             "session" to mapOf(
                 "model" to config.ttsModel,
                 "voice" to config.ttsVoice,
-                "response_format" to config.ttsResponseFormat,
+                "response_format" to config.ttsWireResponseFormat,
                 "mode" to "server_commit"
             )
         )

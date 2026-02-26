@@ -27,20 +27,31 @@ object GoogleMapUtils {
         onSnapshot: (Bitmap) -> Unit,
         snapshotSideLength: Float
     ) {
+        val side = snapshotSideLength.toInt().coerceAtLeast(1)
         val boundsBuilder = LatLngBounds.Builder()
+        var hasPoint = false
         pathPoints.forEach {
-            if (it is PathPoint.LocationPoint)
+            if (it is PathPoint.LocationPoint) {
                 boundsBuilder.include(it.locationInfo.toLatLng())
+                hasPoint = true
+            }
         }
-        map.moveCamera(
-            CameraUpdateFactory
-                .newLatLngBounds(
-                    boundsBuilder.build(),
-                    snapshotSideLength.toInt(),
-                    snapshotSideLength.toInt(),
-                    (snapshotSideLength * 0.2).toInt()
+
+        if (hasPoint) {
+            try {
+                map.moveCamera(
+                    CameraUpdateFactory
+                        .newLatLngBounds(
+                            boundsBuilder.build(),
+                            side,
+                            side,
+                            (snapshotSideLength * 0.2).toInt()
+                        )
                 )
-        )
+            } catch (_: Exception) {
+                // Keep current camera when bounds cannot be applied.
+            }
+        }
 
         //since move camera bounds the map in the specified LocationInfo
         //from the center withing the bounding box (of side snapshotSideLength)
@@ -50,18 +61,23 @@ object GoogleMapUtils {
         //A delay to load the icons and map properly before snapshot
         delay(MAP_SNAPSHOT_DELAY)
         map.snapshot {
-            it?.let {
-                //crop to get a square image which fits the user path
-                val croppedBitmap = Bitmap.createBitmap(
-                    it,
-                    startOffset.x.toInt(), //start x
-                    startOffset.y.toInt(), //start y
-                    snapshotSideLength.toInt(), //width
-                    snapshotSideLength.toInt() //height
-                )
-                onSnapshot(croppedBitmap)
-            }
+            val source = it ?: Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
+            onSnapshot(cropSnapshot(source, startOffset, side))
         }
+    }
+
+    private fun cropSnapshot(
+        bitmap: Bitmap,
+        startOffset: Offset,
+        side: Int
+    ): Bitmap {
+        val safeSide = side.coerceAtMost(minOf(bitmap.width, bitmap.height))
+        if (safeSide <= 0) return bitmap
+        val maxX = (bitmap.width - safeSide).coerceAtLeast(0)
+        val maxY = (bitmap.height - safeSide).coerceAtLeast(0)
+        val safeX = startOffset.x.toInt().coerceIn(0, maxX)
+        val safeY = startOffset.y.toInt().coerceIn(0, maxY)
+        return Bitmap.createBitmap(bitmap, safeX, safeY, safeSide, safeSide)
     }
 
     fun bitmapDescriptorFromVector(

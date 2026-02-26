@@ -75,13 +75,26 @@ class BailianAsrClient @Inject constructor(
             try {
                 val node = mapper.readTree(message)
                 val type = node.get("type")?.asText()
-                val transcript = node.get("transcript")?.asText()
-                if (!transcript.isNullOrBlank()) {
-                    val isFinal = type == "session.finished"
-                    BailianAsrResult(transcript, isFinal)
-                } else {
-                    null
+                val transcript = when (type) {
+                    // Realtime incremental transcript events
+                    "conversation.item.input_audio_transcription.text" -> {
+                        node.get("text")?.asText()
+                    }
+                    // Realtime utterance completed event
+                    "conversation.item.input_audio_transcription.completed" -> {
+                        node.get("transcript")?.asText()
+                    }
+                    // Compatibility: keep parsing transcript field from generic events
+                    else -> {
+                        node.get("transcript")?.asText()
+                    }
                 }
+                if (transcript.isNullOrBlank()) return@mapNotNull null
+
+                val isFinal = type == "conversation.item.input_audio_transcription.completed" ||
+                    type == "session.finished"
+
+                BailianAsrResult(transcript, isFinal)
             } catch (e: Exception) {
                 Timber.w(e, "Failed to parse ASR message")
                 null

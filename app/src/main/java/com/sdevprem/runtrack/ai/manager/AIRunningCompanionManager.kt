@@ -9,6 +9,7 @@ import com.fasterxml.jackson.core.type.TypeReference
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.sdevprem.runtrack.ai.config.CozeConfig
 import com.sdevprem.runtrack.ai.config.AIProviderConfig
+import com.sdevprem.runtrack.ai.config.BailianConfig
 import com.sdevprem.runtrack.ai.model.AIBroadcastType
 import com.sdevprem.runtrack.ai.model.AIConnectionState
 import com.sdevprem.runtrack.ai.model.RunningContext
@@ -17,6 +18,7 @@ import com.sdevprem.runtrack.ai.model.SummaryBroadcastState
 import com.sdevprem.runtrack.ai.audio.AudioRouteManager
 import com.sdevprem.runtrack.ai.audio.AudioStreamPlayer
 import com.sdevprem.runtrack.ai.audio.WebSocketAudioRecorder
+import com.sdevprem.runtrack.ai.realtime.AIProvider
 import com.sdevprem.runtrack.ai.realtime.provider.AIRealtimeProvider
 import com.sdevprem.runtrack.ai.realtime.provider.AIRealtimeProviderEvent
 import com.sdevprem.runtrack.ai.realtime.provider.AIRealtimeProviderFactory
@@ -51,6 +53,7 @@ class AIRunningCompanionManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val cozeConfig: CozeConfig,
     private val aiProviderConfig: AIProviderConfig,
+    private val bailianConfig: BailianConfig,
     private val cozeAPIManager: CozeAPIManager,
     private val realtimeProviderFactory: AIRealtimeProviderFactory,
     private val audioRouteManager: AudioRouteManager,
@@ -975,7 +978,7 @@ class AIRunningCompanionManager @Inject constructor(
         }
 
         audioRecorder.setUseLocalVad(provider.localVadEnabled)
-        audioStreamPlayer.start()
+        audioStreamPlayer.start(resolveRealtimePlaybackSampleRate())
         audioRecorder.start()
 
         realtimeAudioJob = scope.launch(Dispatchers.IO) {
@@ -987,8 +990,8 @@ class AIRunningCompanionManager @Inject constructor(
 
     private fun startRealtimeEventCollection(provider: AIRealtimeProvider) {
         realtimeEventsJob?.cancel()
-        realtimeEventsJob = scope.launch {
-            provider.observeEvents().collectLatest { event ->
+        realtimeEventsJob = scope.launch(Dispatchers.IO) {
+            provider.observeEvents().collect { event ->
                 when (event) {
                     is AIRealtimeProviderEvent.UserTranscript -> {
                         _userTranscript.value = event.text
@@ -1018,6 +1021,14 @@ class AIRunningCompanionManager @Inject constructor(
         audioRecorder.stop()
         audioStreamPlayer.stop()
         _userTranscript.value = ""
+    }
+
+    private fun resolveRealtimePlaybackSampleRate(): Int {
+        if (!aiProviderConfig.isWebSocketEnabled() || aiProviderConfig.provider != AIProvider.BAILIAN) {
+            return WebSocketAudioRecorder.SAMPLE_RATE
+        }
+
+        return bailianConfig.ttsPlaybackSampleRate
     }
     
     private fun buildPrompt(type: AIBroadcastType, context: RunningContext): String {

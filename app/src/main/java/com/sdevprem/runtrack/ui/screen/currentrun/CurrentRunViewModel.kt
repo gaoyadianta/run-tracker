@@ -4,11 +4,14 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sdevprem.runtrack.ai.manager.AIRunningCompanionManager
+import com.sdevprem.runtrack.ai.model.AIBroadcastState
 import com.sdevprem.runtrack.ai.model.AIBroadcastType
 import com.sdevprem.runtrack.ai.model.RunningContext
 import com.sdevprem.runtrack.ai.model.RunningState
 import com.sdevprem.runtrack.ai.model.IntegratedRunState
 import com.sdevprem.runtrack.ai.model.AIConnectionState
+import com.sdevprem.runtrack.ai.model.RunningTrendHistory
+import com.sdevprem.runtrack.ai.prompt.RunningTrendHistoryBuilder
 import com.sdevprem.runtrack.ai.summary.LocalRunSummaryGenerator
 import com.sdevprem.runtrack.ai.summary.RunAiAnnotationGenerator
 import com.sdevprem.runtrack.common.utils.RunAiAnnotationCodec
@@ -32,9 +35,9 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import timber.log.Timber
 import java.math.RoundingMode
 import java.text.SimpleDateFormat
@@ -87,6 +90,7 @@ class CurrentRunViewModel @Inject constructor(
     private val regularBroadcastInterval = 120000L // 2分钟间隔
     private var lastPaceReminderTime = 0L
     private val paceReminderInterval = 180000L // 配速提醒间隔：3分钟
+    private var isFinishingRun = false
     
     init {
         // 初始化AI陪跑管理器
@@ -180,6 +184,12 @@ class CurrentRunViewModel @Inject constructor(
     }
 
     fun finishRun(bitmap: Bitmap) {
+        if (isFinishingRun) {
+            Timber.w("finishRun already in progress, ignore duplicate request")
+            return
+        }
+        isFinishingRun = true
+
         trackingManager.pauseTracking()
         
         // 更新状态为结束中
@@ -209,11 +219,25 @@ class CurrentRunViewModel @Inject constructor(
         
         // 监听总结播报完成
         viewModelScope.launch {
-            aiCompanionManager.summaryBroadcastState
-                .filter { it.broadcastState == com.sdevprem.runtrack.ai.model.AIBroadcastState.COMPLETED }
-                .first()
-            
-            Timber.d("总结播报完成，开始保存跑步数据")
+            val completed = withTimeoutOrNull(SUMMARY_WAIT_TIMEOUT_MS) {
+                while (true) {
+                    val summaryState = aiCompanionManager.summaryBroadcastState.value
+                    if (summaryState.broadcastState == AIBroadcastState.COMPLETED) {
+                        return@withTimeoutOrNull true
+                    }
+
+                    val conn = aiConnectionState.value
+                    if (conn == AIConnectionState.ERROR || conn == AIConnectionState.DISCONNECTED) {
+                        return@withTimeoutOrNull false
+                    }
+                    delay(200L)
+                }
+            } == true
+
+            if (!completed) {
+                Timber.w("总结播报未完成（超时或连接中断），直接保存跑步数据")
+            }
+
             saveRunAndFinish(bitmap)
         }
     }
@@ -268,6 +292,7 @@ class CurrentRunViewModel @Inject constructor(
         val duration = runningDurationInMillis.value
         val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
         val currentTime = timeFormat.format(Date())
+        val trendHistory = buildTrendHistory(runState, duration)
         
         return RunningContext(
             currentRunState = runState,
@@ -277,7 +302,8 @@ class CurrentRunViewModel @Inject constructor(
             targetDistance = 5f,
             targetDuration = 30 * 60 * 1000L,
             weatherInfo = "",
-            timeOfDay = currentTime
+            timeOfDay = currentTime,
+            trendHistory = trendHistory
         )
     }
 
@@ -402,6 +428,7 @@ class CurrentRunViewModel @Inject constructor(
     ): RunningContext {
         val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
         val currentTime = timeFormat.format(Date())
+        val trendHistory = buildTrendHistory(runState, duration)
         
         return RunningContext(
             currentRunState = runState,
@@ -411,8 +438,26 @@ class CurrentRunViewModel @Inject constructor(
             targetDistance = 5f, // 可以从用户设置中获取
             targetDuration = 30 * 60 * 1000L, // 30分钟目标
             weatherInfo = "", // 可以集成天气API
-            timeOfDay = currentTime
+            timeOfDay = currentTime,
+            trendHistory = trendHistory
         )
+    }
+
+    private fun buildTrendHistory(
+        runState: CurrentRunStateWithCalories,
+        duration: Long
+    ): RunningTrendHistory {
+        return try {
+            RunningTrendHistoryBuilder.build(
+                pathPoints = runState.currentRunState.pathPoints,
+                totalDurationMs = duration,
+                cadenceSeries = trackingManager.getCadenceSeries(),
+                totalStepsSeries = trackingManager.getTotalStepsSeries()
+            )
+        } catch (e: Exception) {
+            Timber.w(e, "构建历史趋势上下文失败，回退为空历史")
+            RunningTrendHistory()
+        }
     }
     
     
@@ -421,5 +466,9 @@ class CurrentRunViewModel @Inject constructor(
         // 在清除时重置AI广播间隔为默认值（2分钟）
         aiCompanionManager.setBroadcastInterval(2)
         aiCompanionManager.disconnect()
+    }
+
+    companion object {
+        private const val SUMMARY_WAIT_TIMEOUT_MS = 10_000L
     }
 }

@@ -11,7 +11,8 @@ data class RunningContext(
         val targetDistance: Float = 0f,
         val targetDuration: Long = 0L,
         val weatherInfo: String = "",
-        val timeOfDay: String = ""
+        val timeOfDay: String = "",
+        val trendHistory: RunningTrendHistory = RunningTrendHistory()
 ) {
     val currentPaceKmh: Float
         get() = currentRunState.currentRunState.speedInKMH
@@ -63,6 +64,11 @@ data class RunningContext(
 
             if (timeOfDay.isNotBlank()) {
                 append("时间：$timeOfDay。")
+            }
+
+            if (!trendHistory.isEmpty()) {
+                append("\n")
+                append(trendHistory.toPromptSection())
             }
         }
     }

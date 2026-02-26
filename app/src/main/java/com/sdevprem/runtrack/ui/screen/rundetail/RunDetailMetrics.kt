@@ -39,23 +39,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import com.patrykandpatrick.vico.compose.axis.horizontal.rememberBottomAxis
-import com.patrykandpatrick.vico.compose.axis.vertical.rememberStartAxis
 import com.patrykandpatrick.vico.compose.chart.CartesianChartHost
 import com.patrykandpatrick.vico.compose.chart.layer.rememberLineCartesianLayer
 import com.patrykandpatrick.vico.compose.chart.layer.rememberLineSpec
 import com.patrykandpatrick.vico.compose.chart.rememberCartesianChart
 import com.patrykandpatrick.vico.compose.chart.layout.fullWidth
+import com.patrykandpatrick.vico.compose.chart.scroll.rememberVicoScrollState
+import com.patrykandpatrick.vico.compose.chart.zoom.rememberVicoZoomState
 import com.patrykandpatrick.vico.compose.component.shape.shader.color
-import com.patrykandpatrick.vico.core.axis.AxisItemPlacer
-import com.patrykandpatrick.vico.core.axis.AxisPosition
-import com.patrykandpatrick.vico.core.axis.formatter.AxisValueFormatter
 import com.patrykandpatrick.vico.core.chart.DefaultPointConnector
 import com.patrykandpatrick.vico.core.chart.layout.HorizontalLayout
 import com.patrykandpatrick.vico.core.component.marker.MarkerComponent
@@ -63,9 +61,10 @@ import com.patrykandpatrick.vico.core.component.shape.ShapeComponent
 import com.patrykandpatrick.vico.core.component.shape.Shapes
 import com.patrykandpatrick.vico.core.component.text.TextComponent
 import com.patrykandpatrick.vico.core.component.shape.shader.DynamicShaders
+import com.patrykandpatrick.vico.core.chart.values.AxisValueOverrider
 import com.patrykandpatrick.vico.core.model.CartesianChartModelProducer
-import com.patrykandpatrick.vico.core.model.ExtraStore
 import com.patrykandpatrick.vico.core.model.lineSeries
+import com.patrykandpatrick.vico.core.zoom.Zoom
 import com.sdevprem.runtrack.common.utils.DateTimeUtils
 import com.sdevprem.runtrack.common.utils.RunUtils
 import com.sdevprem.runtrack.domain.model.MetricPoint
@@ -77,6 +76,7 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import androidx.compose.foundation.gestures.detectTapGestures
 
 private data class MetricsPalette(
@@ -128,6 +128,7 @@ fun RunMetricsSection(
     annotations: List<RunAiAnnotationPoint>,
     highlightTimeMs: Long,
     onHighlightTimeChange: (Long) -> Unit,
+    runDurationMs: Long,
     modifier: Modifier = Modifier
 ) {
     val tabs = listOf("配速", "心率", "海拔")
@@ -212,9 +213,18 @@ fun RunMetricsSection(
                 )
             } else {
                 val isPace = selectedTab == 0
-                val times = series.map { it.timeOffsetMs }
-                val lastTime = times.lastOrNull()?.coerceAtLeast(1L) ?: 1L
-                val highlightIndex = closestIndex(times, highlightTimeMs)
+                val times = buildUniformTimeline(
+                    pointCount = series.size,
+                    rawTimes = series.map { it.timeOffsetMs },
+                    preferredDurationMs = runDurationMs
+                )
+                val lastTime = times.maxOrNull()?.coerceAtLeast(1L) ?: 1L
+                val clampedHighlightTime = highlightTimeMs.coerceIn(0L, lastTime)
+                val highlightIndex = resolveHighlightIndex(
+                    times = times,
+                    highlightTimeMs = clampedHighlightTime,
+                    fallbackMaxTime = lastTime
+                )
                 val smoothValues = smoothSeries(
                     series,
                     windowSize = when (selectedTab) {
@@ -224,38 +234,94 @@ fun RunMetricsSection(
                     }
                 )
                 val secondaryValues = if (selectedTab == 0) {
-                    val average = series.map { it.value }.average().toFloat()
-                    List(series.size) { average }
+                    null
                 } else {
                     null
                 }
+                val averageReferenceValue = if (selectedTab == 0) {
+                    series.map { it.value }.average().toFloat()
+                } else {
+                    null
+                }
+                val smoothChartValues = smoothValues.map { it.value }
+                val chartMinValue = smoothChartValues.minOrNull() ?: 0f
+                val chartMaxValue = smoothChartValues.maxOrNull() ?: 0f
+                val mappedMinValue = if (chartMinValue == chartMaxValue) {
+                    chartMinValue - 0.5f
+                } else {
+                    chartMinValue
+                }
+                val mappedMaxValue = if (chartMinValue == chartMaxValue) {
+                    chartMaxValue + 0.5f
+                } else {
+                    chartMaxValue
+                }
+                val paceInvertBase = chartMinValue + chartMaxValue
 
-                RunMetricsChart(
-                    points = smoothValues,
-                    secondaryValues = secondaryValues,
-                    unitLabel = unitLabel,
-                    invert = isPace,
-                    times = times,
-                    annotationTimes = annotationTimes,
-                    highlightIndex = highlightIndex,
-                    onPointSelected = onHighlightTimeChange,
-                    primaryLineColor = primaryLineColor,
-                    secondaryLineColor = secondaryLineColor,
-                    palette = palette,
+                val yAxisWidth = 42.dp
+                val yAxisGap = 4.dp
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = 140.dp)
-                        .height(170.dp)
-                )
-
+                        .height(170.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    YAxisStrip(
+                        unitLabel = unitLabel,
+                        invert = isPace,
+                        mappedMinValue = mappedMinValue,
+                        mappedMaxValue = mappedMaxValue,
+                        invertBase = paceInvertBase,
+                        palette = palette,
+                        modifier = Modifier
+                            .width(yAxisWidth)
+                            .fillMaxHeight()
+                    )
+                    Spacer(modifier = Modifier.width(yAxisGap))
+                    RunMetricsChart(
+                        points = smoothValues,
+                        secondaryValues = secondaryValues,
+                        unitLabel = unitLabel,
+                        invert = isPace,
+                        times = times,
+                        annotationTimes = annotationTimes,
+                        highlightIndex = highlightIndex,
+                        onPointSelected = onHighlightTimeChange,
+                        primaryLineColor = primaryLineColor,
+                        secondaryLineColor = secondaryLineColor,
+                        averageReferenceValue = averageReferenceValue,
+                        palette = palette,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    Spacer(modifier = Modifier.width(yAxisWidth + yAxisGap))
+                    TimeAxisStrip(
+                        maxTimeMs = lastTime,
+                        palette = palette,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (selectedTab == 0) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "蓝线：配速走势  黄虚线：平均配速参考线",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.textMuted
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "同步轨迹：${formatTimeOffset(highlightTimeMs)}",
+                    text = "同步轨迹：${formatTimeOffset(clampedHighlightTime)}",
                     style = MaterialTheme.typography.labelMedium,
                     color = palette.textMuted
                 )
                 Slider(
-                    value = highlightTimeMs.coerceIn(0L, lastTime).toFloat(),
+                    value = clampedHighlightTime.toFloat(),
                     valueRange = 0f..lastTime.toFloat(),
                     onValueChange = { onHighlightTimeChange(it.toLong()) },
                     colors = SliderDefaults.colors(
@@ -591,31 +657,16 @@ private fun RunMetricsChart(
     onPointSelected: (Long) -> Unit,
     primaryLineColor: Color,
     secondaryLineColor: Color,
+    averageReferenceValue: Float? = null,
     palette: MetricsPalette,
     modifier: Modifier = Modifier
 ) {
-    val extraStoreKey = remember { ExtraStore.Key<List<Long>>() }
     val modelProducer = remember { CartesianChartModelProducer.build() }
     val primaryColor = primaryLineColor
     val annotationColor = palette.annotation
     val values = remember(points) { points.map { it.value } }
     val minValue = remember(values) { values.minOrNull() ?: 0f }
     val maxValue = remember(values) { values.maxOrNull() ?: 0f }
-    val axisLabel = remember(palette.axisLabel) {
-        TextComponent.build {
-            color = palette.axisLabel.toArgb()
-            textSizeSp = 10f
-        }
-    }
-    val marker = remember(primaryColor) {
-        MarkerComponent(
-            indicator = ShapeComponent(
-                shape = Shapes.pillShape,
-                color = primaryColor.toArgb()
-            ),
-            label = TextComponent.build { textSizeSp = 0f }
-        )
-    }
     val annotationMarker = remember(annotationColor) {
         MarkerComponent(
             indicator = ShapeComponent(
@@ -630,12 +681,11 @@ private fun RunMetricsChart(
             closestIndex(times, time)
         }.distinct()
     }
-    val markers = remember(highlightIndex, annotationIndices, annotationMarker, marker) {
+    val markers = remember(annotationIndices, annotationMarker) {
         buildMap<Float, MarkerComponent> {
             annotationIndices.forEach { index ->
                 put(index.toFloat(), annotationMarker)
             }
-            highlightIndex?.let { put(it.toFloat(), marker) }
         }
     }
     var chartWidthPx by remember { mutableStateOf(0) }
@@ -648,8 +698,29 @@ private fun RunMetricsChart(
         pointConnector = DefaultPointConnector(cubicStrength = 0.45f)
     )
     val lineSpecs = if (secondaryValues != null) listOf(primarySpec, secondarySpec) else listOf(primarySpec)
+    val yRangeMin = remember(minValue, maxValue) {
+        if (minValue == maxValue) minValue - 0.5f else minValue
+    }
+    val yRangeMax = remember(minValue, maxValue) {
+        if (minValue == maxValue) maxValue + 0.5f else maxValue
+    }
+    val axisValueOverrider = remember(points.size, yRangeMin, yRangeMax) {
+        AxisValueOverrider.fixed(
+            minX = 0f,
+            maxX = points.lastIndex.coerceAtLeast(1).toFloat(),
+            minY = yRangeMin,
+            maxY = yRangeMax
+        )
+    }
+    val chartScrollState = rememberVicoScrollState(scrollEnabled = false)
+    val chartZoomState = rememberVicoZoomState(
+        zoomEnabled = false,
+        initialZoom = Zoom.Content,
+        minZoom = Zoom.Content,
+        maxZoom = Zoom.Content
+    )
 
-    LaunchedEffect(points, secondaryValues, unitLabel, invert) {
+    LaunchedEffect(points, secondaryValues, unitLabel, invert, times) {
         withContext(Dispatchers.Default) {
             modelProducer.tryRunTransaction {
                 val mappedValues = if (invert) {
@@ -669,7 +740,6 @@ private fun RunMetricsChart(
                 lineSeries {
                     series(mappedValues)
                     mappedSecondaryValues?.let { series(it) }
-                    updateExtras { it[extraStoreKey] = points.map { p -> p.timeOffsetMs } }
                 }
             }
         }
@@ -691,73 +761,154 @@ private fun RunMetricsChart(
         CartesianChartHost(
             chart = rememberCartesianChart(
                 rememberLineCartesianLayer(
-                    lines = lineSpecs
-                ),
-                startAxis = rememberStartAxis(
-                    valueFormatter = rememberYAxisFormatter(
-                        unitLabel = unitLabel,
-                        invert = invert,
-                        minValue = minValue,
-                        maxValue = maxValue
-                    ),
-                    label = axisLabel,
-                    itemPlacer = remember {
-                        AxisItemPlacer.Vertical.count(count = { 5 })
-                    },
-                    guideline = null
-                ),
-                bottomAxis = rememberBottomAxis(
-                    valueFormatter = rememberBottomAxisValueFormatter(extraStoreKey),
-                    label = axisLabel,
-                    itemPlacer = remember {
-                        AxisItemPlacer.Horizontal.default(addExtremeLabelPadding = true)
-                    },
-                    guideline = null
+                    lines = lineSpecs,
+                    axisValueOverrider = axisValueOverrider
                 ),
                 persistentMarkers = markers
             ),
             modelProducer = modelProducer,
             modifier = Modifier.fillMaxWidth(),
+            scrollState = chartScrollState,
+            zoomState = chartZoomState,
             horizontalLayout = HorizontalLayout.fullWidth()
+        )
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val index = highlightIndex ?: return@Canvas
+            if (index !in points.indices) return@Canvas
+            if (points.size <= 1) return@Canvas
+
+            val maxIndex = points.lastIndex.coerceAtLeast(1)
+            val x = size.width * (index.toFloat() / maxIndex.toFloat())
+            val sourceValues = points.map { point ->
+                if (invert) {
+                    val base = minValue + maxValue
+                    base - point.value
+                } else {
+                    point.value
+                }
+            }
+            val sourceMin = yRangeMin
+            val sourceMax = yRangeMax
+            val sourceRange = (sourceMax - sourceMin).coerceAtLeast(0.0001f)
+            averageReferenceValue?.let { average ->
+                val mappedAverage = if (invert) {
+                    val base = minValue + maxValue
+                    base - average
+                } else {
+                    average
+                }
+                val averageNormalized = ((mappedAverage - sourceMin) / sourceRange).coerceIn(0f, 1f)
+                val averageY = size.height * (1f - averageNormalized)
+                drawLine(
+                    color = secondaryLineColor,
+                    start = Offset(0f, averageY),
+                    end = Offset(size.width, averageY),
+                    strokeWidth = 1.dp.toPx(),
+                    pathEffect = PathEffect.dashPathEffect(
+                        intervals = floatArrayOf(5.dp.toPx(), 3.dp.toPx()),
+                        phase = 0f
+                    )
+                )
+            }
+            val normalized = ((sourceValues[index] - sourceMin) / sourceRange).coerceIn(0f, 1f)
+            val y = size.height * (1f - normalized)
+
+            drawLine(
+                color = primaryLineColor.copy(alpha = 0.35f),
+                start = Offset(x, 0f),
+                end = Offset(x, size.height),
+                strokeWidth = 1.5.dp.toPx()
+            )
+            drawCircle(
+                color = Color.White,
+                radius = 4.dp.toPx(),
+                center = Offset(x, y)
+            )
+            drawCircle(
+                color = primaryLineColor,
+                radius = 2.8.dp.toPx(),
+                center = Offset(x, y)
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimeAxisStrip(
+    maxTimeMs: Long,
+    palette: MetricsPalette,
+    modifier: Modifier = Modifier
+) {
+    val safeMax = maxTimeMs.coerceAtLeast(1L)
+    val mid = safeMax / 2
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = formatTimeOffset(0L),
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.axisLabel
+        )
+        Text(
+            text = formatTimeOffset(mid),
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.axisLabel
+        )
+        Text(
+            text = formatTimeOffset(safeMax),
+            style = MaterialTheme.typography.labelSmall,
+            color = palette.axisLabel
         )
     }
 }
 
 @Composable
-private fun rememberBottomAxisValueFormatter(
-    extraStoreKey: ExtraStore.Key<List<Long>>
-) = remember(extraStoreKey) {
-    AxisValueFormatter<AxisPosition.Horizontal.Bottom> { x, chartValues, _ ->
-        val times = chartValues.model.extraStore[extraStoreKey]
-        if (x.toInt() in times.indices) {
-            formatTimeOffset(times[x.toInt()])
-        } else {
-            ""
+private fun YAxisStrip(
+    unitLabel: String,
+    invert: Boolean,
+    mappedMinValue: Float,
+    mappedMaxValue: Float,
+    invertBase: Float,
+    palette: MetricsPalette,
+    modifier: Modifier = Modifier
+) {
+    val tickCount = 5
+    val range = (mappedMaxValue - mappedMinValue).coerceAtLeast(0.0001f)
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.SpaceBetween,
+        horizontalAlignment = Alignment.End
+    ) {
+        repeat(tickCount) { index ->
+            val ratio = if (tickCount == 1) 0f else index.toFloat() / (tickCount - 1).toFloat()
+            val mappedValue = mappedMaxValue - (range * ratio)
+            val displayValue = if (invert) {
+                invertBase - mappedValue
+            } else {
+                mappedValue
+            }
+            Text(
+                text = formatYAxisValue(
+                    value = displayValue,
+                    unitLabel = unitLabel
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = palette.axisLabel,
+                maxLines = 1
+            )
         }
     }
 }
 
-@Composable
-private fun rememberYAxisFormatter(
-    unitLabel: String,
-    invert: Boolean,
-    minValue: Float,
-    maxValue: Float
-) = remember(unitLabel, invert, minValue, maxValue) {
-    AxisValueFormatter<AxisPosition.Vertical.Start> { value, _, _ ->
-        val displayValue = if (invert) {
-            val base = minValue + maxValue
-            base - value
-        } else {
-            value
-        }
-        when (unitLabel) {
-            "min/km" -> RunUtils.formatPace(displayValue)
-            "bpm" -> "${displayValue.toInt()} bpm"
-            "spm" -> displayValue.toInt().toString()
-            else -> "${displayValue.toInt()} m"
-        }
-    }
+private fun formatYAxisValue(
+    value: Float,
+    unitLabel: String
+): String = when (unitLabel) {
+    "min/km" -> RunUtils.formatPace(value.coerceAtLeast(0f))
+    "bpm" -> value.roundToInt().toString()
+    "spm" -> value.roundToInt().toString()
+    else -> value.roundToInt().toString()
 }
 
 private fun formatTimeOffset(timeOffsetMs: Long): String {
@@ -1167,4 +1318,43 @@ private fun closestIndex(times: List<Long>, target: Long): Int? {
         }
     }
     return bestIndex
+}
+
+private fun resolveHighlightIndex(
+    times: List<Long>,
+    highlightTimeMs: Long,
+    fallbackMaxTime: Long
+): Int? {
+    if (times.isEmpty()) return null
+    if (times.size == 1) return 0
+
+    val hasIncreasingTimeline = times.zipWithNext().any { (a, b) -> b > a }
+    if (hasIncreasingTimeline) {
+        return closestIndex(times, highlightTimeMs)
+    }
+
+    val safeMax = fallbackMaxTime.coerceAtLeast(1L)
+    val ratio = highlightTimeMs.coerceIn(0L, safeMax).toFloat() / safeMax.toFloat()
+    return ((times.lastIndex) * ratio).roundToInt().coerceIn(0, times.lastIndex)
+}
+
+private fun buildUniformTimeline(
+    pointCount: Int,
+    rawTimes: List<Long>,
+    preferredDurationMs: Long
+): List<Long> {
+    if (pointCount <= 0) return emptyList()
+    if (pointCount == 1) return listOf(0L)
+
+    val rawMax = rawTimes.maxOrNull()?.coerceAtLeast(0L) ?: 0L
+    val fallbackDuration = (pointCount - 1).toLong() * 1_000L
+    val spanMs = when {
+        preferredDurationMs > 0L -> preferredDurationMs
+        rawMax > 0L -> rawMax
+        else -> fallbackDuration
+    }.coerceAtLeast((pointCount - 1).toLong())
+
+    return List(pointCount) { index ->
+        (spanMs.toDouble() * index / (pointCount - 1).toDouble()).roundToLong()
+    }
 }

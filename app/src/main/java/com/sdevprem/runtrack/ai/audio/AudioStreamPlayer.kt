@@ -11,21 +11,23 @@ import javax.inject.Singleton
 @Singleton
 class AudioStreamPlayer @Inject constructor() {
     private var audioTrack: AudioTrack? = null
+    private var preferredSampleRate: Int = WebSocketAudioRecorder.SAMPLE_RATE
+    private var activeSampleRate: Int = WebSocketAudioRecorder.SAMPLE_RATE
 
     fun start(sampleRate: Int = WebSocketAudioRecorder.SAMPLE_RATE) {
-        if (audioTrack != null) return
+        preferredSampleRate = sampleRate
+        if (audioTrack != null && activeSampleRate == sampleRate) return
+        if (audioTrack != null) {
+            stop()
+        }
 
-        val minBuffer = AudioTrack.getMinBufferSize(
-            sampleRate,
-            AudioFormat.CHANNEL_OUT_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
+        val minBuffer = AudioTrack.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT)
         if (minBuffer <= 0) {
             Timber.e("无法获取AudioTrack缓冲区大小")
             return
         }
 
-        audioTrack = AudioTrack(
+        val track = AudioTrack(
             AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -39,20 +41,49 @@ class AudioStreamPlayer @Inject constructor() {
             AudioTrack.MODE_STREAM,
             AudioManager.AUDIO_SESSION_ID_GENERATE
         )
-
-        audioTrack?.play()
+        if (track.state != AudioTrack.STATE_INITIALIZED) {
+            Timber.e("AudioTrack初始化失败: sampleRate=$sampleRate")
+            track.release()
+            return
+        }
+        track.play()
+        audioTrack = track
+        activeSampleRate = sampleRate
     }
 
     fun play(data: ByteArray) {
         if (audioTrack == null) {
-            start()
+            start(preferredSampleRate)
         }
-        audioTrack?.write(data, 0, data.size)
+        val firstWrite = try {
+            audioTrack?.write(data, 0, data.size) ?: AudioTrack.ERROR_INVALID_OPERATION
+        } catch (e: IllegalStateException) {
+            Timber.w(e, "AudioTrack写入失败，准备重建播放器")
+            AudioTrack.ERROR_INVALID_OPERATION
+        }
+
+        if (firstWrite < 0) {
+            Timber.w("AudioTrack写入返回错误码: $firstWrite，重建后重试")
+            start(preferredSampleRate)
+            try {
+                audioTrack?.write(data, 0, data.size)
+            } catch (e: Exception) {
+                Timber.w(e, "AudioTrack重试写入失败")
+            }
+        }
     }
 
     fun stop() {
-        audioTrack?.stop()
-        audioTrack?.release()
+        try {
+            audioTrack?.stop()
+        } catch (e: Exception) {
+            Timber.w(e, "AudioTrack停止失败")
+        }
+        try {
+            audioTrack?.release()
+        } catch (e: Exception) {
+            Timber.w(e, "AudioTrack释放失败")
+        }
         audioTrack = null
     }
 }

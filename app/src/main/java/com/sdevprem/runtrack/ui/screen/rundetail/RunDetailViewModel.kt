@@ -9,18 +9,20 @@ import com.sdevprem.runtrack.common.utils.RunMetricsCodec
 import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
 import com.sdevprem.runtrack.data.repository.AppRepository
+import com.sdevprem.runtrack.domain.model.MetricPoint
 import com.sdevprem.runtrack.domain.model.RunMetricsData
 import com.sdevprem.runtrack.ui.nav.Destination
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.math.abs
+import kotlin.math.roundToLong
 
 @HiltViewModel
 class RunDetailViewModel @Inject constructor(
@@ -75,6 +77,10 @@ class RunDetailViewModel @Inject constructor(
                 elevationSeries = persistedMetrics.elevationSeries.ifEmpty { fallbackMetrics.elevationSeries },
                 splits = persistedMetrics.splits.ifEmpty { fallbackMetrics.splits }
             )
+            val alignedMetrics = alignMetricsTimeAxis(
+                metrics = metrics,
+                runDurationMs = detail.run.durationInMillis
+            )
 
             val annotations = RunAiAnnotationCodec.decode(detail.traceAnnotationsJson ?: "")
 
@@ -84,7 +90,7 @@ class RunDetailViewModel @Inject constructor(
                 oneLiner = detail.oneLiner,
                 summary = detail.summary,
                 pathPoints = pathPoints,
-                metrics = metrics,
+                metrics = alignedMetrics,
                 aiAnnotations = annotations,
                 compareRun = compare
             )
@@ -99,5 +105,95 @@ class RunDetailViewModel @Inject constructor(
         viewModelScope.launch {
             repository.deleteRun(run)
         }
+    }
+
+    private fun alignMetricsTimeAxis(
+        metrics: RunMetricsData,
+        runDurationMs: Long
+    ): RunMetricsData {
+        return metrics.copy(
+            paceSeries = alignSeriesToDuration(metrics.paceSeries, runDurationMs),
+            heartRateSeries = alignSeriesToDuration(metrics.heartRateSeries, runDurationMs),
+            elevationSeries = alignSeriesToDuration(metrics.elevationSeries, runDurationMs),
+            cadenceSeries = alignSeriesToDuration(metrics.cadenceSeries, runDurationMs),
+            strideLengthSeries = alignSeriesToDuration(metrics.strideLengthSeries, runDurationMs)
+        )
+    }
+
+    private fun alignSeriesToDuration(
+        points: List<MetricPoint>,
+        runDurationMs: Long
+    ): List<MetricPoint> {
+        if (points.size <= 1) return points
+        val duration = runDurationMs.coerceAtLeast(0L)
+        val fallbackInterval = if (duration > 0L) {
+            (duration / (points.size - 1)).coerceAtLeast(1L)
+        } else {
+            1_000L
+        }
+        val rawTimes = points.map { it.timeOffsetMs }
+        val baseTime = rawTimes.firstOrNull { it > 0L } ?: rawTimes.first().coerceAtLeast(0L)
+        val rebasedTimes = rawTimes.mapIndexed { index, time ->
+            if (time > 0L) {
+                (time - baseTime).coerceAtLeast(0L)
+            } else {
+                fallbackInterval * index.toLong()
+            }
+        }
+        val normalizedTimes = normalizeOffsets(rebasedTimes, fallbackInterval)
+        val adjustedTimes = if (duration > 0L) {
+            scaleToDurationIfNeeded(
+                offsets = normalizedTimes,
+                durationMs = duration,
+                fallbackInterval = fallbackInterval
+            )
+        } else {
+            normalizedTimes
+        }
+        return points.mapIndexed { index, point ->
+            point.copy(timeOffsetMs = adjustedTimes[index])
+        }
+    }
+
+    private fun scaleToDurationIfNeeded(
+        offsets: List<Long>,
+        durationMs: Long,
+        fallbackInterval: Long
+    ): List<Long> {
+        if (offsets.isEmpty()) return offsets
+        val normalizedLast = offsets.last().coerceAtLeast(1L)
+        val needsScale = abs(normalizedLast - durationMs) > (durationMs * 0.2f).toLong()
+        if (!needsScale) {
+            return offsets.map { it.coerceIn(0L, durationMs) }
+        }
+        val scale = durationMs.toDouble() / normalizedLast.toDouble()
+        val scaled = offsets.map { offset ->
+            (offset * scale).roundToLong().coerceIn(0L, durationMs)
+        }
+        return normalizeOffsets(
+            offsets = scaled,
+            fallbackInterval = fallbackInterval.coerceAtLeast(1L)
+        ).map { it.coerceIn(0L, durationMs) }
+    }
+
+    private fun normalizeOffsets(
+        offsets: List<Long>,
+        fallbackInterval: Long
+    ): List<Long> {
+        if (offsets.isEmpty()) return offsets
+        val safeInterval = fallbackInterval.coerceAtLeast(1L)
+        val result = ArrayList<Long>(offsets.size)
+        var last = offsets.first().coerceAtLeast(0L)
+        result.add(last)
+        for (index in 1 until offsets.size) {
+            val candidate = offsets[index].coerceAtLeast(0L)
+            last = if (candidate <= last) {
+                last + safeInterval
+            } else {
+                candidate
+            }
+            result.add(last)
+        }
+        return result
     }
 }
