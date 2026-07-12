@@ -6,7 +6,9 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -31,7 +33,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
@@ -46,6 +48,7 @@ import com.sdevprem.runtrack.ui.common.map.MapStyle
 import com.sdevprem.runtrack.ui.screen.currentrun.component.AICompanionCard
 import com.sdevprem.runtrack.ui.screen.currentrun.component.CurrentRunStatsCard
 import com.sdevprem.runtrack.ui.screen.currentrun.component.Map
+import com.sdevprem.runtrack.ui.screen.currentrun.component.NewsNowPlayingCard
 import com.sdevprem.runtrack.ui.theme.AppTheme
 import kotlinx.coroutines.delay
 import android.os.SystemClock
@@ -62,6 +65,7 @@ fun CurrentRunScreen(
         viewModel: CurrentRunViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val permissionDeniedMessage = stringResource(R.string.permission_denied_message)
     val permissionLauncher =
             rememberLauncherForActivityResult(
                     contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -69,10 +73,24 @@ fun CurrentRunScreen(
                 if (!permissionMap.values.all { it })
                         Toast.makeText(
                                         context,
-                                        context.getString(R.string.permission_denied_message),
+                                        permissionDeniedMessage,
                                         Toast.LENGTH_SHORT
                                 )
                                 .show()
+            }
+    val aiPermissionLauncher =
+            rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.RequestMultiplePermissions()
+            ) { permissionMap ->
+                if (permissionMap[android.Manifest.permission.RECORD_AUDIO] == true) {
+                    viewModel.connectAI()
+                } else {
+                    Toast.makeText(
+                            context,
+                            "需要麦克风权限才能使用 AI 语音",
+                            Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
     LaunchedEffect(key1 = true) {
         LocationUtils.checkAndRequestLocationSetting(context as Activity)
@@ -92,7 +110,9 @@ fun CurrentRunScreen(
     // AI陪跑状态
     val aiLastMessage by viewModel.aiLastMessage.collectAsStateWithLifecycle()
     val integratedRunState by viewModel.integratedRunState.collectAsStateWithLifecycle()
+    val newsPlaybackState by viewModel.newsPlaybackState.collectAsStateWithLifecycle()
     val toastMessage by viewModel.toastMessage.collectAsStateWithLifecycle()
+    val runSaveState by viewModel.runSaveState.collectAsStateWithLifecycle()
 
     LaunchedEffect(key1 = "location_acquisition") {
         if (context.hasLocationPermission()) {
@@ -118,7 +138,18 @@ fun CurrentRunScreen(
         if (!finishHandled) {
             finishHandled = true
             viewModel.finishRun(createFallbackRunBitmap())
-            navController.navigateUp()
+        }
+    }
+
+    LaunchedEffect(runSaveState) {
+        when (runSaveState) {
+            RunSaveState.SAVED -> navController.navigateUp()
+            RunSaveState.ERROR -> {
+                finishRequested = false
+                finishHandled = false
+                isRunningFinished = false
+            }
+            else -> Unit
         }
     }
 
@@ -142,7 +173,7 @@ fun CurrentRunScreen(
             viewModel.playPauseTracking()
         } else {
             permissionLauncher.launch(
-                PermissionUtils.locationPermissions + PermissionUtils.activityRecognitionPermissions
+                PermissionUtils.runTrackingPermissions
             )
         }
     }
@@ -158,7 +189,6 @@ fun CurrentRunScreen(
                     if (!finishHandled) {
                         finishHandled = true
                         viewModel.finishRun(bitmap)
-                        navController.navigateUp()
                     }
                 },
                 onUserGesture = {
@@ -194,12 +224,32 @@ fun CurrentRunScreen(
                 modifier = Modifier.align(Alignment.TopCenter).padding(top = 80.dp, start = 24.dp, end = 24.dp),
                 visible = shouldShowRunningCard
         ) {
-            AICompanionCard(
-                    integratedRunState = integratedRunState,
-                    lastMessage = aiLastMessage,
-                    onConnectClick = { viewModel.connectAI() },
-                    onDisconnectClick = { viewModel.disconnectAI() }
-            )
+            Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                AICompanionCard(
+                        integratedRunState = integratedRunState,
+                        lastMessage = aiLastMessage,
+                        onConnectClick = {
+                            val permissions = PermissionUtils.aiVoicePermissions
+                            val allGranted = permissions.all { permission ->
+                                androidx.core.content.ContextCompat.checkSelfPermission(
+                                        context,
+                                        permission
+                                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                            }
+                            if (allGranted) viewModel.connectAI()
+                            else aiPermissionLauncher.launch(permissions)
+                        },
+                        onDisconnectClick = { viewModel.disconnectAI() }
+                )
+                NewsNowPlayingCard(
+                        state = newsPlaybackState,
+                        onPrimaryActionClick = { viewModel.toggleNewsPlayback() },
+                        onSkipClick = { viewModel.skipNewsReadout() },
+                        onStopClick = { viewModel.stopNewsReadout() }
+                )
+            }
         }
         ComposeUtils.SlideUpAnimatedVisibility(
                 modifier = Modifier.align(Alignment.BottomCenter),

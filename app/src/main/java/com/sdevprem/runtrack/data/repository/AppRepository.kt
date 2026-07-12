@@ -2,12 +2,18 @@ package com.sdevprem.runtrack.data.repository
 
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
+import androidx.room.withTransaction
+import com.sdevprem.runtrack.data.db.RunTrackDB
 import com.sdevprem.runtrack.data.db.dao.RunAiDao
 import com.sdevprem.runtrack.data.db.dao.RunMetricsDao
 import com.sdevprem.runtrack.data.db.dao.RunDao
+import com.sdevprem.runtrack.data.db.dao.RunNewsHistoryDao
 import com.sdevprem.runtrack.data.model.Run
 import com.sdevprem.runtrack.data.model.RunAiArtifact
 import com.sdevprem.runtrack.data.model.RunMetricsEntity
+import com.sdevprem.runtrack.data.model.RunNewsHistoryEntity
+import com.sdevprem.runtrack.data.model.CompletedRunBundle
+import com.sdevprem.runtrack.data.storage.RunImageStore
 import com.sdevprem.runtrack.data.utils.RunSortOrder
 import kotlinx.coroutines.flow.Flow
 import java.util.Date
@@ -16,13 +22,29 @@ import javax.inject.Singleton
 
 @Singleton
 class AppRepository @Inject constructor(
+    private val db: RunTrackDB,
+    private val runImageStore: RunImageStore,
     private val runDao: RunDao,
     private val runAiDao: RunAiDao,
-    private val runMetricsDao: RunMetricsDao
+    private val runMetricsDao: RunMetricsDao,
+    private val runNewsHistoryDao: RunNewsHistoryDao
 ) {
     suspend fun insertRun(run: Run): Long = runDao.insertRun(run)
 
-    suspend fun deleteRun(run: Run) = runDao.deleteRun(run)
+    suspend fun insertCompletedRun(bundle: CompletedRunBundle): Long = db.withTransaction {
+        val runId = runDao.insertRun(bundle.run).toInt()
+        runAiDao.upsertRunAiArtifact(bundle.aiArtifact.copy(runId = runId))
+        runMetricsDao.upsertRunMetrics(bundle.metrics.copy(runId = runId))
+        if (bundle.newsHistory.isNotEmpty()) {
+            runNewsHistoryDao.insertAll(bundle.newsHistory.map { it.copy(runId = runId) })
+        }
+        runId.toLong()
+    }
+
+    suspend fun deleteRun(run: Run) {
+        runDao.deleteRun(run)
+        runImageStore.delete(run.imagePath)
+    }
 
     fun getSortedAllRun(sortingOrder: RunSortOrder) = Pager(
         config = PagingConfig(pageSize = 20),
@@ -68,6 +90,15 @@ class AppRepository @Inject constructor(
     suspend fun getRunMetrics(runId: Int) = runMetricsDao.getRunMetrics(runId)
 
     suspend fun deleteRunMetrics(runId: Int) = runMetricsDao.deleteRunMetrics(runId)
+
+    suspend fun insertRunNewsHistory(items: List<RunNewsHistoryEntity>) {
+        if (items.isEmpty()) return
+        runNewsHistoryDao.insertAll(items)
+    }
+
+    fun observeRunNewsHistory(runId: Int) = runNewsHistoryDao.observeByRunId(runId)
+
+    suspend fun deleteRunNewsHistory(runId: Int) = runNewsHistoryDao.deleteByRunId(runId)
 
     fun getTotalRunningDuration(fromDate: Date? = null, toDate: Date? = null): Flow<Long> =
         runDao.getTotalRunningDuration(fromDate, toDate)

@@ -1,7 +1,6 @@
 package com.sdevprem.runtrack.ui.common.compose
 
 import android.content.Intent
-import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.AlertDialog
@@ -44,12 +43,9 @@ fun BatteryOptimizationDialog(
             TextButton(
                 onClick = {
                     try {
-                        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            batteryOptimizationManager.requestIgnoreBatteryOptimizations()
-                        } else {
+                        batteryOptimizationLauncher.launch(
                             batteryOptimizationManager.openBatteryOptimizationSettings()
-                        }
-                        batteryOptimizationLauncher.launch(intent)
+                        )
                     } catch (e: Exception) {
                         // 如果无法打开设置，则打开通用设置页面
                         val fallbackIntent = batteryOptimizationManager.openBatteryOptimizationSettings()

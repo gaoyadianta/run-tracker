@@ -14,7 +14,10 @@
 
 # Uncomment this to preserve the line number information for
 # debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+-keepattributes SourceFile,LineNumberTable
+
+# Coze request models retain a source-only Lombok annotation reference.
+-dontwarn lombok.NonNull
 
 # If you keep the line number information, uncomment this to
 # hide the original source file name.

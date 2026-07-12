@@ -35,7 +35,8 @@ class DefaultLocationTrackingManager @Inject constructor(
                                 altitudeMeters = if (it.hasAltitude()) it.altitude else null,
                                 timeMs = it.time
                             ),
-                            speedInMS = it.speed
+                            speedInMS = it.speed,
+                            accuracyMeters = if (it.hasAccuracy()) it.accuracy else null
                         )
                     }
                 }

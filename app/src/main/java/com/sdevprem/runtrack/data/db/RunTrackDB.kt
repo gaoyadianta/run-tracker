@@ -8,15 +8,17 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 import com.sdevprem.runtrack.data.db.dao.RunAiDao
 import com.sdevprem.runtrack.data.db.dao.RunMetricsDao
 import com.sdevprem.runtrack.data.db.dao.RunDao
+import com.sdevprem.runtrack.data.db.dao.RunNewsHistoryDao
 import com.sdevprem.runtrack.data.db.mapper.DBConverters
 import com.sdevprem.runtrack.data.model.RunAiArtifact
 import com.sdevprem.runtrack.data.model.RunMetricsEntity
 import com.sdevprem.runtrack.data.model.Run
+import com.sdevprem.runtrack.data.model.RunNewsHistoryEntity
 
 @Database(
-    entities = [Run::class, RunAiArtifact::class, RunMetricsEntity::class],
-    version = 6,
-    exportSchema = false
+    entities = [Run::class, RunAiArtifact::class, RunMetricsEntity::class, RunNewsHistoryEntity::class],
+    version = 8,
+    exportSchema = true
 )
 
 @TypeConverters(DBConverters::class)
@@ -86,10 +88,42 @@ abstract class RunTrackDB : RoomDatabase() {
                 )
             }
         }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "CREATE TABLE IF NOT EXISTS run_news_history (" +
+                        "id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "runId INTEGER NOT NULL, " +
+                        "title TEXT NOT NULL, " +
+                        "source TEXT NOT NULL, " +
+                        "publishedAtEpochMs INTEGER, " +
+                        "articleUrl TEXT NOT NULL, " +
+                        "playedAtEpochMs INTEGER NOT NULL, " +
+                        "FOREIGN KEY(runId) REFERENCES running_table(id) ON DELETE CASCADE" +
+                        ")"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_run_news_history_runId ON run_news_history(runId)"
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_run_news_history_playedAtEpochMs ON run_news_history(playedAtEpochMs)"
+                )
+            }
+        }
+
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE running_table ADD COLUMN imagePath TEXT"
+                )
+            }
+        }
     }
 
     abstract fun getRunDao(): RunDao
     abstract fun getRunAiDao(): RunAiDao
     abstract fun getRunMetricsDao(): RunMetricsDao
+    abstract fun getRunNewsHistoryDao(): RunNewsHistoryDao
 
 }

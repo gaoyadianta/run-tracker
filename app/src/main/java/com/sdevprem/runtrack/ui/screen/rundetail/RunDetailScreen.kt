@@ -51,6 +51,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -62,11 +63,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.sdevprem.runtrack.R
 import com.sdevprem.runtrack.common.utils.DateTimeUtils
 import com.sdevprem.runtrack.common.utils.RunUtils
+import com.sdevprem.runtrack.data.model.RunNewsHistoryEntity
 import com.sdevprem.runtrack.domain.model.RunAiAnnotationPoint
 import com.sdevprem.runtrack.domain.tracking.model.LocationInfo
 import com.sdevprem.runtrack.ui.share.ShareCardRenderer
@@ -95,6 +97,7 @@ fun RunDetailScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var showDeleteDialog by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val coroutineScope = rememberCoroutineScope()
     var highlightTimeMs by remember { mutableStateOf(0L) }
     var shareTarget by remember { mutableStateOf(ShareTarget.WECHAT) }
@@ -347,6 +350,7 @@ fun RunDetailScreen(
                         metrics = state.metrics,
                         oneLiner = state.oneLiner,
                         summary = state.summary,
+                        newsHistory = state.newsHistory,
                         selectedAnnotation = selectedAnnotation,
                         annotations = state.aiAnnotations,
                         highlightTimeMs = highlightTimeMs,
@@ -359,6 +363,12 @@ fun RunDetailScreen(
                         shareMode = shareMode,
                         onShareTargetClick = { target ->
                             shareAction(target, shareMode)
+                        },
+                        onOpenNewsLink = { url ->
+                            runCatching { uriHandler.openUri(url) }
+                                .onFailure {
+                                    Toast.makeText(context, "无法打开链接", Toast.LENGTH_SHORT).show()
+                                }
                         },
                         onShareTargetChange = { shareTarget = it },
                         onShareModeChange = { shareMode = it },
@@ -528,6 +538,7 @@ private fun RunHistoryBottomSheet(
     metrics: com.sdevprem.runtrack.domain.model.RunMetricsData,
     oneLiner: String?,
     summary: String?,
+    newsHistory: List<RunNewsHistoryEntity>,
     selectedAnnotation: RunAiAnnotationPoint?,
     annotations: List<RunAiAnnotationPoint>,
     highlightTimeMs: Long,
@@ -537,6 +548,7 @@ private fun RunHistoryBottomSheet(
     shareTarget: ShareTarget,
     shareMode: ShareMode,
     onShareTargetClick: (ShareTarget) -> Unit,
+    onOpenNewsLink: (String) -> Unit,
     onShareTargetChange: (ShareTarget) -> Unit,
     onShareModeChange: (ShareMode) -> Unit,
     onShareClick: () -> Unit
@@ -629,6 +641,11 @@ private fun RunHistoryBottomSheet(
             )
             Spacer(modifier = Modifier.height(16.dp))
             AiRecapCard(oneLiner = oneLiner, summary = summary)
+            Spacer(modifier = Modifier.height(16.dp))
+            NewsHistoryCard(
+                history = newsHistory,
+                onOpenNewsLink = onOpenNewsLink
+            )
             Spacer(modifier = Modifier.height(16.dp))
             ShareOptionsSection(
                 shareTarget = shareTarget,
@@ -928,6 +945,68 @@ private fun AiRecapCard(
 }
 
 @Composable
+private fun NewsHistoryCard(
+    history: List<RunNewsHistoryEntity>,
+    onOpenNewsLink: (String) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        val textPrimary = MaterialTheme.colorScheme.onSurface
+        val textMuted = MaterialTheme.colorScheme.onSurfaceVariant
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                text = "本次播报",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = textPrimary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            if (history.isEmpty()) {
+                Text(
+                    text = "本次跑步未播报新闻。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = textMuted
+                )
+                return@Column
+            }
+
+            history.forEachIndexed { index, item ->
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = item.title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = textPrimary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "${item.source} · ${formatNewsPublishedAt(item.publishedAtEpochMs)}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textMuted
+                    )
+                    TextButton(
+                        onClick = { onOpenNewsLink(item.articleUrl) },
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(text = "打开原文")
+                    }
+                }
+                if (index < history.lastIndex) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    androidx.compose.material3.HorizontalDivider(
+                        color = textMuted.copy(alpha = 0.35f)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ShareOptionsSection(
     shareTarget: ShareTarget,
     shareMode: ShareMode,
@@ -981,6 +1060,11 @@ private fun ShareMode.toLabel(): String = when (this) {
     ShareMode.STORY -> "故事卡"
     ShareMode.QUOTE -> "金句卡"
     ShareMode.COMPARE -> "对比卡"
+}
+
+private fun formatNewsPublishedAt(epochMs: Long?): String {
+    if (epochMs == null) return "未知时间"
+    return SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(epochMs)
 }
 
 

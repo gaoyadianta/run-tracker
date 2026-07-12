@@ -32,7 +32,8 @@ class AmapLocationTrackingManager @Inject constructor(
                     altitudeMeters = location.altitude,
                     timeMs = location.time
                 ),
-                speedInMS = location.speed // 高德返回的速度单位是m/s
+                speedInMS = location.speed, // 高德返回的速度单位是m/s
+                accuracyMeters = location.accuracy
             )
             locationCallback?.onLocationUpdate(listOf(locationTrackingInfo))
         }

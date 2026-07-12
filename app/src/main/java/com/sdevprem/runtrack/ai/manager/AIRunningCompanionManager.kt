@@ -16,8 +16,15 @@ import com.sdevprem.runtrack.ai.model.RunningContext
 import com.sdevprem.runtrack.ai.model.AIBroadcastState
 import com.sdevprem.runtrack.ai.model.SummaryBroadcastState
 import com.sdevprem.runtrack.ai.audio.AudioRouteManager
+import com.sdevprem.runtrack.ai.audio.AudioFocusCoordinator
 import com.sdevprem.runtrack.ai.audio.AudioStreamPlayer
 import com.sdevprem.runtrack.ai.audio.WebSocketAudioRecorder
+import com.sdevprem.runtrack.ai.news.NewsProgram
+import com.sdevprem.runtrack.ai.news.NewsVoiceCommandParser
+import com.sdevprem.runtrack.ai.news.config.NewsProgramConfig
+import com.sdevprem.runtrack.ai.news.model.NewsPlaybackState
+import com.sdevprem.runtrack.ai.news.model.NewsVoiceCommand
+import com.sdevprem.runtrack.ai.news.model.RunSessionNewsHistoryItem
 import com.sdevprem.runtrack.ai.realtime.AIProvider
 import com.sdevprem.runtrack.ai.realtime.provider.AIRealtimeProvider
 import com.sdevprem.runtrack.ai.realtime.provider.AIRealtimeProviderEvent
@@ -57,8 +64,12 @@ class AIRunningCompanionManager @Inject constructor(
     private val cozeAPIManager: CozeAPIManager,
     private val realtimeProviderFactory: AIRealtimeProviderFactory,
     private val audioRouteManager: AudioRouteManager,
+    private val audioFocusCoordinator: AudioFocusCoordinator,
     private val audioRecorder: WebSocketAudioRecorder,
-    private val audioStreamPlayer: AudioStreamPlayer
+    private val audioStreamPlayer: AudioStreamPlayer,
+    private val newsProgramConfig: NewsProgramConfig,
+    private val newsVoiceCommandParser: NewsVoiceCommandParser,
+    private val newsProgram: NewsProgram
 ) {
     companion object {
         private const val TAG = "AIRunningCompanion"
@@ -88,6 +99,7 @@ class AIRunningCompanionManager @Inject constructor(
 
     private val _userTranscript = MutableStateFlow("")
     val userTranscript: StateFlow<String> = _userTranscript.asStateFlow()
+    val newsPlaybackState: StateFlow<NewsPlaybackState> = newsProgram.playbackState
     
     // 总结播报状态管理
     private val _summaryBroadcastState = MutableStateFlow(SummaryBroadcastState())
@@ -99,6 +111,8 @@ class AIRunningCompanionManager @Inject constructor(
     private var broadcastInterval = 120000L // 常规播报间隔：2分钟
     private var specialBroadcastInterval = 30000L // 特殊广播间隔：30秒，避免过于频繁
     private var isProcessingSummary = false // 标记是否正在处理总结播报
+    private var isAssistantSpeaking = false
+    private var hasAutoStartedNewsOnAppOpen = false
     
     /**
      * 初始化AI陪跑功能
@@ -238,6 +252,7 @@ class AIRunningCompanionManager @Inject constructor(
             
             // 更新状态
             _connectionState.value = AIConnectionState.DISCONNECTED
+            releaseCompanionAudioFocus()
             
             // 停止心跳保活
             stopKeepAlive()
@@ -289,6 +304,8 @@ class AIRunningCompanionManager @Inject constructor(
             
             // 清理音频路由管理器
             audioRouteManager.cleanup()
+            audioFocusCoordinator.abandonAll()
+            newsProgram.destroy()
             
             // 取消所有协程
             scope.coroutineContext.cancelChildren()
@@ -392,6 +409,53 @@ class AIRunningCompanionManager @Inject constructor(
     fun setDebugBroadcastInterval(intervalSeconds: Int) {
         broadcastInterval = intervalSeconds * 1000L
         specialBroadcastInterval = intervalSeconds * 1000L
+    }
+
+    fun tryAutoStartNewsOnAppOpen() {
+        if (hasAutoStartedNewsOnAppOpen) return
+        if (!newsProgramConfig.autoStartOnAppOpen) return
+        hasAutoStartedNewsOnAppOpen = true
+        if (!newsProgramConfig.enabled) return
+        if (!newsProgramConfig.fullTextAuthorized) return
+        if (!newsProgramConfig.isProviderConfigured()) return
+        startNewsReadout(
+            keyword = newsProgramConfig.defaultKeyword,
+            language = newsProgramConfig.defaultLanguage
+        )
+    }
+
+    fun startNewsReadout(keyword: String? = null, language: String? = null) {
+        if (!newsProgramConfig.enabled) {
+            return
+        }
+        newsProgram.start(
+            keyword = keyword?.trim().takeUnless { it.isNullOrBlank() },
+            language = language?.ifBlank { newsProgramConfig.defaultLanguage } ?: newsProgramConfig.defaultLanguage
+        )
+    }
+
+    fun pauseNewsReadout() {
+        newsProgram.pause()
+    }
+
+    fun resumeNewsReadout() {
+        newsProgram.resume()
+    }
+
+    fun skipNewsReadout() {
+        newsProgram.skip()
+    }
+
+    fun stopNewsReadout() {
+        newsProgram.stop()
+    }
+
+    fun resetNewsSessionHistory() {
+        newsProgram.clearSessionHistory()
+    }
+
+    fun consumeNewsSessionHistory(): List<RunSessionNewsHistoryItem> {
+        return newsProgram.consumeSessionHistory()
     }
     
     
@@ -995,17 +1059,35 @@ class AIRunningCompanionManager @Inject constructor(
                 when (event) {
                     is AIRealtimeProviderEvent.UserTranscript -> {
                         _userTranscript.value = event.text
+                        if (event.isFinal) {
+                            handleNewsVoiceCommand(event.text)
+                        }
                     }
                     is AIRealtimeProviderEvent.AssistantTextDelta -> {
                         updateMessage(event.text)
                     }
                     is AIRealtimeProviderEvent.AssistantAudioDelta -> {
+                        if (!isAssistantSpeaking) {
+                            isAssistantSpeaking = true
+                            acquireCompanionAudioFocus()
+                            newsProgram.onCompanionInterruptStart()
+                        }
                         audioStreamPlayer.play(event.audio)
                     }
                     is AIRealtimeProviderEvent.AssistantCompleted -> {
                         handleBroadcastCompleted()
+                        if (isAssistantSpeaking) {
+                            isAssistantSpeaking = false
+                            releaseCompanionAudioFocus()
+                            newsProgram.onCompanionInterruptEnd()
+                        }
                     }
                     is AIRealtimeProviderEvent.Error -> {
+                        if (isAssistantSpeaking) {
+                            isAssistantSpeaking = false
+                            releaseCompanionAudioFocus()
+                            newsProgram.onCompanionInterruptEnd()
+                        }
                         _connectionState.value = AIConnectionState.ERROR
                     }
                 }
@@ -1020,6 +1102,11 @@ class AIRunningCompanionManager @Inject constructor(
         realtimeEventsJob = null
         audioRecorder.stop()
         audioStreamPlayer.stop()
+        if (isAssistantSpeaking) {
+            isAssistantSpeaking = false
+            releaseCompanionAudioFocus()
+            newsProgram.onCompanionInterruptEnd()
+        }
         _userTranscript.value = ""
     }
 
@@ -1029,6 +1116,35 @@ class AIRunningCompanionManager @Inject constructor(
         }
 
         return bailianConfig.ttsPlaybackSampleRate
+    }
+
+    private fun handleNewsVoiceCommand(text: String) {
+        val command = newsVoiceCommandParser.parse(text)
+        when (command) {
+            is NewsVoiceCommand.Start -> {
+                if (!newsProgramConfig.allowVoiceStart) return
+                startNewsReadout(command.keyword, command.language)
+            }
+            is NewsVoiceCommand.ChangeKeyword -> {
+                startNewsReadout(command.keyword, command.language)
+            }
+            is NewsVoiceCommand.Pause -> pauseNewsReadout()
+            is NewsVoiceCommand.Resume -> resumeNewsReadout()
+            is NewsVoiceCommand.Skip -> skipNewsReadout()
+            is NewsVoiceCommand.Stop -> stopNewsReadout()
+            NewsVoiceCommand.None -> Unit
+        }
+    }
+
+    private fun acquireCompanionAudioFocus() {
+        val granted = audioFocusCoordinator.requestCompanionFocus()
+        if (!granted) {
+            Timber.w("陪跑音频焦点申请失败")
+        }
+    }
+
+    private fun releaseCompanionAudioFocus() {
+        audioFocusCoordinator.abandonCompanionFocus()
     }
     
     private fun buildPrompt(type: AIBroadcastType, context: RunningContext): String {

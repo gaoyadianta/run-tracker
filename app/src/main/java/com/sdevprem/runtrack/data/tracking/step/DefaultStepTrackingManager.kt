@@ -140,6 +140,17 @@ class DefaultStepTrackingManager @Inject constructor(
         _stepTrackingInfo.value = StepTrackingInfo()
         Timber.d("Step tracking reset")
     }
+
+    override fun restoreStepCount(totalSteps: Int) {
+        check(!isTracking) { "Step tracking must be stopped before restoring" }
+        val restoredSteps = totalSteps.coerceAtLeast(0)
+        sessionStepsOffset = restoredSteps
+        initialStepCount = null
+        _stepTrackingInfo.value = _stepTrackingInfo.value.copy(
+            totalSteps = restoredSteps,
+            stepsPerMinute = 0f
+        )
+    }
     
     private fun handleSensorEvent(event: SensorEvent) {
         when (event.sensor.type) {

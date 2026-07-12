@@ -1,19 +1,35 @@
+import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.jetbrains.kotlin)
     alias(libs.plugins.maps.secrets)
     alias(libs.plugins.dagger.hilt.android)
     alias(libs.plugins.jetbrains.kotlin.kapt)
+    alias(libs.plugins.jetbrains.kotlin.compose)
 }
+
+val localProperties = Properties().apply {
+    rootProject.file("local.properties")
+        .takeIf { it.exists() }
+        ?.inputStream()
+        ?.use { load(it) }
+}
+
+fun secretValue(name: String): String =
+    providers.gradleProperty(name).orNull
+        ?: System.getenv(name)
+        ?: localProperties.getProperty(name).orEmpty()
 
 android {
     namespace = "com.sdevprem.runtrack"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.sdevprem.runtrack"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
@@ -23,13 +39,23 @@ android {
         }
         
         // Handle optional AMAP API key
-        val amapApiKey = project.findProperty("AMAP_API_KEY") ?: ""
+        val amapApiKey = secretValue("AMAP_API_KEY")
         manifestPlaceholders["AMAP_API_KEY"] = amapApiKey
+
+        // Secrets are injected from local.properties, -P properties, or CI environment variables.
+        resValue("string", "coze_access_token", secretValue("COZE_ACCESS_TOKEN"))
+        resValue("string", "ai_ws_volcano_token", secretValue("AI_WS_VOLCANO_TOKEN"))
+        resValue("string", "ai_ws_bailian_token", secretValue("AI_WS_BAILIAN_TOKEN"))
+        resValue("string", "ai_bailian_api_key", secretValue("AI_BAILIAN_API_KEY"))
+        resValue("string", "ai_volcano_access_key", secretValue("AI_VOLCANO_ACCESS_KEY"))
+        resValue("string", "ai_volcano_ark_api_key", secretValue("AI_VOLCANO_ARK_API_KEY"))
+        resValue("string", "news_program_api_key_value", secretValue("NEWS_PROGRAM_API_KEY"))
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -40,21 +66,21 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     buildFeatures {
         compose = true
         // Enable BuildConfig generation (silences buildConfigFields warning)
         buildConfig = true
     }
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.1"
-    }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
@@ -69,6 +95,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material)
+    implementation(libs.androidx.compose.material.icons.extended)
 
     //test
     testImplementation(libs.junit)
@@ -125,9 +152,6 @@ dependencies {
     implementation(libs.androidx.paging.runtime)
     implementation(libs.androidx.paging.compose)
 
-    //permission
-    implementation(libs.accompanist.permissions)
-
     //vico
     implementation(libs.vico.compose)
     implementation(libs.vico.compose.m3)
@@ -145,4 +169,8 @@ dependencies {
 
 kapt {
     correctErrorTypes = true
+    arguments {
+        arg("room.schemaLocation", "$projectDir/schemas")
+        arg("room.incremental", "true")
+    }
 }

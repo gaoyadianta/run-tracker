@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.sdevprem.runtrack.ai.manager.AIRunningCompanionManager
+import com.sdevprem.runtrack.ai.news.model.NewsPlaybackStatus
 import com.sdevprem.runtrack.ai.model.AIBroadcastState
 import com.sdevprem.runtrack.ai.model.AIBroadcastType
 import com.sdevprem.runtrack.ai.model.RunningContext
@@ -16,12 +17,15 @@ import com.sdevprem.runtrack.ai.summary.LocalRunSummaryGenerator
 import com.sdevprem.runtrack.ai.summary.RunAiAnnotationGenerator
 import com.sdevprem.runtrack.common.utils.RunAiAnnotationCodec
 import com.sdevprem.runtrack.common.utils.RunMetricsCalculator
+import com.sdevprem.runtrack.common.utils.RunCompletionMetrics
 import com.sdevprem.runtrack.common.utils.RunMetricsCodec
 import com.sdevprem.runtrack.common.utils.RouteEncodingUtils
 import com.sdevprem.runtrack.data.model.Run
-import com.sdevprem.runtrack.data.model.RunAiArtifact
 import com.sdevprem.runtrack.data.model.RunMetricsEntity
+import com.sdevprem.runtrack.data.model.RunNewsHistoryEntity
+import com.sdevprem.runtrack.data.model.CompletedRunBundle
 import com.sdevprem.runtrack.data.repository.AppRepository
+import com.sdevprem.runtrack.data.storage.RunImageStore
 import com.sdevprem.runtrack.di.ApplicationScope
 import com.sdevprem.runtrack.di.IoDispatcher
 import com.sdevprem.runtrack.domain.model.CurrentRunStateWithCalories
@@ -39,7 +43,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import timber.log.Timber
-import java.math.RoundingMode
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -49,6 +52,7 @@ import javax.inject.Inject
 class CurrentRunViewModel @Inject constructor(
     private val trackingManager: TrackingManager,
     private val repository: AppRepository,
+    private val runImageStore: RunImageStore,
     val batteryOptimizationManager: com.sdevprem.runtrack.background.tracking.battery.BatteryOptimizationManager,
     val aiCompanionManager: AIRunningCompanionManager,
     private val runSummaryGenerator: LocalRunSummaryGenerator,
@@ -70,6 +74,10 @@ class CurrentRunViewModel @Inject constructor(
     // AI陪跑相关状态
     val aiConnectionState = aiCompanionManager.connectionState
     val aiLastMessage = aiCompanionManager.lastMessage
+    val newsPlaybackState = aiCompanionManager.newsPlaybackState
+
+    private val _runSaveState = MutableStateFlow(RunSaveState.IDLE)
+    val runSaveState = _runSaveState.asStateFlow()
     
     // 集成状态管理
     private val _integratedRunState = MutableStateFlow(
@@ -140,6 +148,7 @@ class CurrentRunViewModel @Inject constructor(
         _integratedRunState.value = _integratedRunState.value.copy(
             runningState = RunningState.STARTING
         )
+        aiCompanionManager.resetNewsSessionHistory()
         
         // 首先开始跑步追踪
         trackingManager.startResumeTracking()
@@ -243,48 +252,43 @@ class CurrentRunViewModel @Inject constructor(
     }
     
     private fun saveRunAndFinish(bitmap: Bitmap) {
+        aiCompanionManager.stopNewsReadout()
         val runState = currentRunStateWithCalories.value
         val duration = runningDurationInMillis.value
+        val pathPoints = runState.currentRunState.pathPoints.toList()
+        val cadenceSeries = trackingManager.getCadenceSeries()
+        val strideLengthSeries = trackingManager.getStrideLengthSeries()
+        val newsHistory = aiCompanionManager.consumeNewsSessionHistory()
         
         // 计算平均步频：如果跑步时间大于0，则计算平均值，否则使用当前值
-        val avgStepsPerMinute = if (duration > 0 && runState.currentRunState.totalSteps > 0) {
-            (runState.currentRunState.totalSteps.toFloat() / (duration / 60000f))
-        } else {
-            runState.currentRunState.stepsPerMinute
-        }
-        
-        saveRun(
-            Run(
+        val avgStepsPerMinute = RunCompletionMetrics.averageCadence(
+            totalSteps = runState.currentRunState.totalSteps,
+            durationMs = duration,
+            fallback = runState.currentRunState.stepsPerMinute
+        )
+        val averageSpeed = RunCompletionMetrics.averageSpeedKmh(
+            distanceMeters = runState.currentRunState.distanceInMeters,
+            durationMs = duration
+        )
+        val completedRun = Run(
                 img = bitmap,
-                avgSpeedInKMH = currentRunStateWithCalories.value.currentRunState.distanceInMeters
-                    .toBigDecimal()
-                    .multiply(3600.toBigDecimal())
-                    .divide(runningDurationInMillis.value.toBigDecimal(), 2, RoundingMode.HALF_UP)
-                    .toFloat(),
-                distanceInMeters = currentRunStateWithCalories.value.currentRunState.distanceInMeters,
-                durationInMillis = runningDurationInMillis.value,
+                avgSpeedInKMH = averageSpeed,
+                distanceInMeters = runState.currentRunState.distanceInMeters,
+                durationInMillis = duration,
                 timestamp = Date(),
-                caloriesBurned = currentRunStateWithCalories.value.caloriesBurnt,
+                caloriesBurned = runState.caloriesBurnt,
                 totalSteps = runState.currentRunState.totalSteps,
                 avgStepsPerMinute = avgStepsPerMinute,
-                routePoints = RouteEncodingUtils.encodePathPoints(
-                    runState.currentRunState.pathPoints
-                )
-            )
+                routePoints = RouteEncodingUtils.encodePathPoints(pathPoints)
         )
-        
-        // 更新状态为已停止
-        _integratedRunState.value = _integratedRunState.value.copy(
-            runningState = RunningState.STOPPED,
-            isGeneratingSummary = false
+        persistCompletedRun(
+            run = completedRun,
+            pathPoints = pathPoints,
+            duration = duration,
+            cadenceSeries = cadenceSeries,
+            strideLengthSeries = strideLengthSeries,
+            newsHistory = newsHistory
         )
-
-        // 重置常规广播计时器
-        lastRegularBroadcastTime = 0L
-
-        trackingManager.stop()
-
-        // AI连接的断开由AIRunningCompanionManager自动处理
     }
     
     private fun createFinalRunningContext(): RunningContext {
@@ -307,60 +311,82 @@ class CurrentRunViewModel @Inject constructor(
         )
     }
 
-    private fun saveRun(run: Run) = appCoroutineScope.launch(ioDispatcher) {
-        val runId = repository.insertRun(run).toInt()
-        try {
-            repository.upsertRunAiArtifact(
-                runSummaryGenerator.generate(
-                    runId = runId,
-                    run = run.copy(id = runId)
+    private fun persistCompletedRun(
+        run: Run,
+        pathPoints: List<com.sdevprem.runtrack.domain.tracking.model.PathPoint>,
+        duration: Long,
+        cadenceSeries: List<com.sdevprem.runtrack.domain.model.MetricPoint>,
+        strideLengthSeries: List<com.sdevprem.runtrack.domain.model.MetricPoint>,
+        newsHistory: List<com.sdevprem.runtrack.ai.news.model.RunSessionNewsHistoryItem>
+    ) {
+        _runSaveState.value = RunSaveState.SAVING
+        appCoroutineScope.launch(ioDispatcher) {
+            var storedImagePath: String? = null
+            try {
+                val storedImage = runImageStore.save(run.img)
+                storedImagePath = storedImage.path
+                val persistedRun = run.copy(
+                    img = storedImage.thumbnail,
+                    imagePath = storedImage.path
                 )
-            )
-        } catch (e: Exception) {
-            Timber.w(e, "Failed to generate local run summary")
-        }
-
-        try {
-            val pathPoints = currentRunStateWithCalories.value.currentRunState.pathPoints
-            val metrics = RunMetricsCalculator.calculate(
-                pathPoints = pathPoints,
-                totalDurationMs = runningDurationInMillis.value
-            )
-            val cadenceSeries = trackingManager.getCadenceSeries()
-            val strideLengthSeries = trackingManager.getStrideLengthSeries()
-            repository.upsertRunMetrics(
-                RunMetricsEntity(
-                    runId = runId,
-                    paceSeries = RunMetricsCodec.encodeMetricPoints(metrics.paceSeries),
-                    heartRateSeries = RunMetricsCodec.encodeMetricPoints(metrics.heartRateSeries),
-                    elevationSeries = RunMetricsCodec.encodeMetricPoints(metrics.elevationSeries),
-                    splits = RunMetricsCodec.encodeSplits(metrics.splits),
-                    cadenceSeries = RunMetricsCodec.encodeMetricPoints(cadenceSeries),
-                    strideLengthSeries = RunMetricsCodec.encodeMetricPoints(strideLengthSeries)
+                val metrics = RunMetricsCalculator.calculate(
+                    pathPoints = pathPoints,
+                    totalDurationMs = duration
                 )
-            )
-
-            val annotations = runAiAnnotationGenerator.generate(
-                metrics = metrics,
-                pathPoints = pathPoints,
-                totalDurationMs = runningDurationInMillis.value
-            )
-            val encodedAnnotations = RunAiAnnotationCodec.encode(annotations)
-            val existing = repository.getRunAiArtifact(runId)
-            if (!encodedAnnotations.isNullOrBlank()) {
-                repository.upsertRunAiArtifact(
-                    existing?.copy(traceAnnotationsJson = encodedAnnotations)
-                        ?: RunAiArtifact(
-                            runId = runId,
-                            traceAnnotationsJson = encodedAnnotations
-                        )
+                val annotations = runAiAnnotationGenerator.generate(
+                    metrics = metrics,
+                    pathPoints = pathPoints,
+                    totalDurationMs = duration
                 )
+                val artifact = runSummaryGenerator.generate(runId = 0, run = persistedRun).copy(
+                    traceAnnotationsJson = RunAiAnnotationCodec.encode(annotations)
+                )
+                repository.insertCompletedRun(
+                    CompletedRunBundle(
+                        run = persistedRun,
+                        aiArtifact = artifact,
+                        metrics = RunMetricsEntity(
+                            runId = 0,
+                            paceSeries = RunMetricsCodec.encodeMetricPoints(metrics.paceSeries),
+                            heartRateSeries = RunMetricsCodec.encodeMetricPoints(metrics.heartRateSeries),
+                            elevationSeries = RunMetricsCodec.encodeMetricPoints(metrics.elevationSeries),
+                            splits = RunMetricsCodec.encodeSplits(metrics.splits),
+                            cadenceSeries = RunMetricsCodec.encodeMetricPoints(cadenceSeries),
+                            strideLengthSeries = RunMetricsCodec.encodeMetricPoints(strideLengthSeries)
+                        ),
+                        newsHistory = newsHistory.map { item ->
+                            RunNewsHistoryEntity(
+                                runId = 0,
+                                title = item.title,
+                                source = item.source,
+                                publishedAtEpochMs = item.publishedAtEpochMs,
+                                articleUrl = item.articleUrl,
+                                playedAtEpochMs = item.playedAtEpochMs
+                            )
+                        }
+                    )
+                )
+                trackingManager.stop()
+                lastRegularBroadcastTime = 0L
+                _integratedRunState.value = _integratedRunState.value.copy(
+                    runningState = RunningState.STOPPED,
+                    isGeneratingSummary = false
+                )
+                _runSaveState.value = RunSaveState.SAVED
+            } catch (error: Exception) {
+                runImageStore.delete(storedImagePath)
+                Timber.e(error, "Failed to persist completed run")
+                isFinishingRun = false
+                _integratedRunState.value = _integratedRunState.value.copy(
+                    runningState = RunningState.PAUSED,
+                    isGeneratingSummary = false
+                )
+                _toastMessage.value = "保存跑步记录失败，请重试"
+                _runSaveState.value = RunSaveState.ERROR
             }
-        } catch (e: Exception) {
-            Timber.w(e, "Failed to generate run metrics")
         }
     }
-    
+
     // AI陪跑相关方法
     fun connectAI() {
         aiCompanionManager.connect()
@@ -368,6 +394,27 @@ class CurrentRunViewModel @Inject constructor(
     
     fun disconnectAI() {
         aiCompanionManager.disconnect()
+    }
+
+    fun toggleNewsPlayback() {
+        when (newsPlaybackState.value.status) {
+            NewsPlaybackStatus.RUNNING,
+            NewsPlaybackStatus.FETCHING -> aiCompanionManager.pauseNewsReadout()
+            NewsPlaybackStatus.PAUSED,
+            NewsPlaybackStatus.INTERRUPTED -> aiCompanionManager.resumeNewsReadout()
+            NewsPlaybackStatus.IDLE,
+            NewsPlaybackStatus.NO_CONTENT,
+            NewsPlaybackStatus.STOPPED,
+            NewsPlaybackStatus.ERROR -> aiCompanionManager.startNewsReadout()
+        }
+    }
+
+    fun skipNewsReadout() {
+        aiCompanionManager.skipNewsReadout()
+    }
+
+    fun stopNewsReadout() {
+        aiCompanionManager.stopNewsReadout()
     }
     
     // 调试方法 - 用于检查步数追踪状态
@@ -465,10 +512,18 @@ class CurrentRunViewModel @Inject constructor(
         super.onCleared()
         // 在清除时重置AI广播间隔为默认值（2分钟）
         aiCompanionManager.setBroadcastInterval(2)
+        aiCompanionManager.stopNewsReadout()
         aiCompanionManager.disconnect()
     }
 
     companion object {
         private const val SUMMARY_WAIT_TIMEOUT_MS = 10_000L
     }
+}
+
+enum class RunSaveState {
+    IDLE,
+    SAVING,
+    SAVED,
+    ERROR
 }

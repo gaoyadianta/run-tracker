@@ -1,5 +1,6 @@
 package com.sdevprem.runtrack.data.tracking.timer
 
+import android.os.SystemClock
 import com.sdevprem.runtrack.di.ApplicationScope
 import com.sdevprem.runtrack.di.DefaultDispatcher
 import com.sdevprem.runtrack.domain.tracking.timer.TimeTracker
@@ -15,7 +16,8 @@ class DefaultTimeTracker @Inject constructor(
     @ApplicationScope private val applicationScope: CoroutineScope,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : TimeTracker {
-    private var timeElapsedInMillis = 0L
+    private var accumulatedTimeMs = 0L
+    private var resumedAtElapsedRealtimeMs = 0L
     private var isRunning = false
     private var callback: ((timeInMillis: Long) -> Unit)? = null
     private var job: Job? = null
@@ -23,12 +25,11 @@ class DefaultTimeTracker @Inject constructor(
     private fun start() {
         if (job != null)
             return
-        System.currentTimeMillis()
+        resumedAtElapsedRealtimeMs = SystemClock.elapsedRealtime()
         this.job = applicationScope.launch(defaultDispatcher) {
             while (isRunning && isActive) {
-                callback?.invoke(timeElapsedInMillis)
+                callback?.invoke(currentElapsedTimeMs())
                 delay(1000)
-                timeElapsedInMillis += 1000
             }
         }
     }
@@ -43,14 +44,28 @@ class DefaultTimeTracker @Inject constructor(
 
     override fun stopTimer() {
         pauseTimer()
-        timeElapsedInMillis = 0
+        accumulatedTimeMs = 0L
     }
 
     override fun pauseTimer() {
+        if (isRunning) {
+            accumulatedTimeMs = currentElapsedTimeMs()
+        }
         isRunning = false
         job?.cancel()
         job = null
         callback = null
+    }
+
+    override fun restoreElapsedTime(elapsedTimeMs: Long) {
+        check(!isRunning) { "Timer must be paused before restoring elapsed time" }
+        accumulatedTimeMs = elapsedTimeMs.coerceAtLeast(0L)
+    }
+
+    private fun currentElapsedTimeMs(): Long {
+        if (!isRunning) return accumulatedTimeMs
+        return accumulatedTimeMs +
+            (SystemClock.elapsedRealtime() - resumedAtElapsedRealtimeMs).coerceAtLeast(0L)
     }
 
 }

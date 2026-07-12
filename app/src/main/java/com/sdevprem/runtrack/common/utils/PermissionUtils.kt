@@ -19,9 +19,8 @@ object PermissionUtils {
 
     val bluetoothPermissions = mutableListOf<String>().apply {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            // Android 12+ 需要新的蓝牙权限
+            // Audio routing only needs access to already paired devices.
             add(Manifest.permission.BLUETOOTH_CONNECT)
-            add(Manifest.permission.BLUETOOTH_SCAN)
         } else {
             // Android 11 及以下使用旧的蓝牙权限
             add(Manifest.permission.BLUETOOTH)
@@ -30,8 +29,7 @@ object PermissionUtils {
     }.toTypedArray()
 
     val audioPermissions = arrayOf(
-        Manifest.permission.RECORD_AUDIO,
-        Manifest.permission.MODIFY_AUDIO_SETTINGS
+        Manifest.permission.RECORD_AUDIO
     )
 
     val activityRecognitionPermissions = mutableListOf<String>().apply {
@@ -49,4 +47,16 @@ object PermissionUtils {
             add(notificationPermission)
         }
     }.toTypedArray()
+
+    val runTrackingPermissions: Array<String>
+        get() = buildList {
+            addAll(locationPermissions)
+            addAll(activityRecognitionPermissions)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                add(notificationPermission)
+            }
+        }.toTypedArray()
+
+    val aiVoicePermissions: Array<String>
+        get() = audioPermissions + bluetoothPermissions
 }

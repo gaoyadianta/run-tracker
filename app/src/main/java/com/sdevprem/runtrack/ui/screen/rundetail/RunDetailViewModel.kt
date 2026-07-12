@@ -16,10 +16,12 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.roundToLong
@@ -34,6 +36,20 @@ class RunDetailViewModel @Inject constructor(
     private val compareRun = MutableStateFlow<Run?>(null)
 
     private val detailFlow = repository.observeRunDetail(runId)
+        .catch { error ->
+            Timber.e(error, "observeRunDetail failed: runId=$runId")
+            emit(null)
+        }
+    private val metricsFlow = repository.observeRunMetrics(runId)
+        .catch { error ->
+            Timber.e(error, "observeRunMetrics failed: runId=$runId")
+            emit(null)
+        }
+    private val newsHistoryFlow = repository.observeRunNewsHistory(runId)
+        .catch { error ->
+            Timber.e(error, "observeRunNewsHistory failed: runId=$runId")
+            emit(emptyList())
+        }
 
     init {
         detailFlow
@@ -51,9 +67,10 @@ class RunDetailViewModel @Inject constructor(
 
     val uiState = combine(
         detailFlow,
-        repository.observeRunMetrics(runId),
-        compareRun
-    ) { detail, metricsEntity, compare ->
+        metricsFlow,
+        compareRun,
+        newsHistoryFlow
+    ) { detail, metricsEntity, compare, newsHistory ->
         if (detail == null) {
             RunDetailUiState(isLoading = false)
         } else {
@@ -92,7 +109,8 @@ class RunDetailViewModel @Inject constructor(
                 pathPoints = pathPoints,
                 metrics = alignedMetrics,
                 aiAnnotations = annotations,
-                compareRun = compare
+                compareRun = compare,
+                newsHistory = newsHistory
             )
         }
     }.stateIn(

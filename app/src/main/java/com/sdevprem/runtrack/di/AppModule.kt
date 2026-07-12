@@ -21,6 +21,8 @@ import com.sdevprem.runtrack.domain.tracking.background.BackgroundTrackingManage
 import com.sdevprem.runtrack.domain.tracking.location.LocationTrackingManager
 import com.sdevprem.runtrack.domain.tracking.step.StepTrackingManager
 import com.sdevprem.runtrack.domain.tracking.timer.TimeTracker
+import com.sdevprem.runtrack.domain.tracking.session.TrackingSessionCheckpointStore
+import com.sdevprem.runtrack.data.tracking.session.DataStoreTrackingSessionCheckpointStore
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -61,7 +63,9 @@ abstract class AppModule {
             RunTrackDB.MIGRATION_2_3,
             RunTrackDB.MIGRATION_3_4,
             RunTrackDB.MIGRATION_4_5,
-            RunTrackDB.MIGRATION_5_6
+            RunTrackDB.MIGRATION_5_6,
+            RunTrackDB.MIGRATION_6_7,
+            RunTrackDB.MIGRATION_7_8
         )
         .build()
 
@@ -76,6 +80,10 @@ abstract class AppModule {
         @Singleton
         @Provides
         fun provideRunMetricsDao(db: RunTrackDB) = db.getRunMetricsDao()
+
+        @Singleton
+        @Provides
+        fun provideRunNewsHistoryDao(db: RunTrackDB) = db.getRunNewsHistoryDao()
 
         @Provides
         @Singleton
@@ -125,5 +133,11 @@ abstract class AppModule {
     abstract fun provideStepTrackingManager(
         stepTrackingManager: DefaultStepTrackingManager
     ): StepTrackingManager
+
+    @Binds
+    @Singleton
+    abstract fun provideTrackingSessionCheckpointStore(
+        store: DataStoreTrackingSessionCheckpointStore
+    ): TrackingSessionCheckpointStore
 
 }

@@ -36,7 +36,7 @@ fun Context.hasActivityRecognitionPermission() =
     } else true
 
 fun Context.hasRunTrackingPermissions() =
-    hasLocationPermission() && hasActivityRecognitionPermission()
+    hasLocationPermission() && hasActivityRecognitionPermission() && hasNotificationPermission()
 
 fun Context.hasAllPermission() =
     PermissionUtils.allPermissions.all {

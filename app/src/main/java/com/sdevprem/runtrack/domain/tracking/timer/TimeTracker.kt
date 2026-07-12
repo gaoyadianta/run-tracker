@@ -7,4 +7,6 @@ interface TimeTracker {
 
     fun pauseTimer()
 
+    fun restoreElapsedTime(elapsedTimeMs: Long)
+
 }

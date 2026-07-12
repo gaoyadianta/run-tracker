@@ -6,7 +6,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
-import androidx.annotation.RequiresApi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import timber.log.Timber
 import javax.inject.Inject
@@ -28,16 +27,6 @@ class BatteryOptimizationManager @Inject constructor(
             powerManager.isIgnoringBatteryOptimizations(context.packageName)
         } else {
             true // Android 6.0以下版本不需要处理
-        }
-    }
-
-    /**
-     * 请求用户将应用加入电池优化白名单
-     */
-    @RequiresApi(Build.VERSION_CODES.M)
-    fun requestIgnoreBatteryOptimizations(): Intent {
-        return Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-            data = Uri.parse("package:${context.packageName}")
         }
     }
 

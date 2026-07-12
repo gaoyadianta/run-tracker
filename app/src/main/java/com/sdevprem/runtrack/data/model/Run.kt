@@ -17,6 +17,7 @@ data class Run(
     var totalSteps: Int = 0,           // 总步数
     var avgStepsPerMinute: Float = 0f, // 平均步频
     var routePoints: String = "",
+    var imagePath: String? = null,
 
     @PrimaryKey(autoGenerate = true)
     val id: Int = 0

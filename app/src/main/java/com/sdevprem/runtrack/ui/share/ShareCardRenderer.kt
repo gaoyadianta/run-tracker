@@ -48,7 +48,7 @@ object ShareCardRenderer {
         canvas.drawColor(Color.WHITE)
 
         val mapHeight = (height * if (target == ShareTarget.XHS) 0.5f else 0.52f).toInt()
-        val mapBitmap = scaleToFill(run.img, width, mapHeight)
+        val mapBitmap = scaleToFill(loadRunMap(run), width, mapHeight)
         canvas.drawBitmap(mapBitmap, 0f, 0f, null)
         drawGradientOverlay(
             canvas,
@@ -147,7 +147,7 @@ object ShareCardRenderer {
         val grid = width / 12f
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
-        val mapBitmap = scaleToFill(run.img, width, height)
+        val mapBitmap = scaleToFill(loadRunMap(run), width, height)
         canvas.drawBitmap(mapBitmap, 0f, 0f, null)
 
         drawGradientOverlay(
@@ -514,6 +514,11 @@ object ShareCardRenderer {
             value,
             context.resources.displayMetrics
         )
+
+    private fun loadRunMap(run: Run): Bitmap =
+        run.imagePath
+            ?.let(BitmapFactory::decodeFile)
+            ?: run.img
 
     private fun scaleToFill(source: Bitmap, width: Int, height: Int): Bitmap {
         val dest = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)

@@ -21,6 +21,8 @@ object RunAiAnnotationCodec {
             val time = parts[0].toLongOrNull() ?: return@mapNotNull null
             val lat = parts[1].toDoubleOrNull() ?: return@mapNotNull null
             val lng = parts[2].toDoubleOrNull() ?: return@mapNotNull null
+            if (!lat.isFinite() || !lng.isFinite()) return@mapNotNull null
+            if (lat !in -90.0..90.0 || lng !in -180.0..180.0) return@mapNotNull null
             val textBytes = try {
                 Base64.decode(parts.drop(3).joinToString(","), Base64.NO_WRAP)
             } catch (_: Exception) {

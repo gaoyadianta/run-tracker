@@ -9,6 +9,7 @@ interface StepTrackingManager {
     fun startStepTracking(callback: StepCallback)
     fun stopStepTracking()
     fun resetStepTracking()
+    fun restoreStepCount(totalSteps: Int)
     
     interface StepCallback {
         fun onStepUpdate(stepInfo: StepTrackingInfo)

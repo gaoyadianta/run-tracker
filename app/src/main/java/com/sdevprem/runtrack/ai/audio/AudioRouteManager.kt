@@ -1,5 +1,7 @@
 package com.sdevprem.runtrack.ai.audio
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothHeadset
 import android.bluetooth.BluetoothProfile
@@ -7,10 +9,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
 import android.os.Build
 import androidx.annotation.RequiresApi
+import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -151,7 +155,13 @@ class AudioRouteManager @Inject constructor(
             registerBluetoothReceivers()
             
             // 连接蓝牙耳机服务
-            bluetoothAdapter?.getProfileProxy(context, bluetoothProfileListener, BluetoothProfile.HEADSET)
+            if (hasBluetoothConnectPermission()) {
+                bluetoothAdapter?.getProfileProxy(
+                    context,
+                    bluetoothProfileListener,
+                    BluetoothProfile.HEADSET
+                )
+            }
             
             // 更新可用设备列表
             updateAvailableDevices()
@@ -209,7 +219,9 @@ class AudioRouteManager @Inject constructor(
     /**
      * 初始化SCO连接
      */
+    @SuppressLint("MissingPermission")
     private fun initializeScoConnection() {
+        if (!hasBluetoothConnectPermission()) return
         try {
             // Check if we have a Bluetooth headset connected
             if (bluetoothHeadset?.connectedDevices?.isNotEmpty() == true) {
@@ -225,8 +237,6 @@ class AudioRouteManager @Inject constructor(
                 audioManager.startBluetoothSco()
                 Timber.d("启动SCO连接")
 
-                // Wait for connection to establish
-                Thread.sleep(500)
             }
         } catch (e: Exception) {
             Timber.e(e, "初始化SCO连接失败")
@@ -369,7 +379,9 @@ class AudioRouteManager @Inject constructor(
     /**
      * 检查蓝牙耳机是否连接
      */
+    @SuppressLint("MissingPermission")
     private fun isBluetoothHeadsetConnected(): Boolean {
+        if (!hasBluetoothConnectPermission()) return false
         return try {
             val hasConnectedDevices = bluetoothHeadset?.connectedDevices?.isNotEmpty() == true
             val connectedDevicesCount = bluetoothHeadset?.connectedDevices?.size ?: 0
@@ -389,6 +401,13 @@ class AudioRouteManager @Inject constructor(
             false
         }
     }
+
+    private fun hasBluetoothConnectPermission(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.BLUETOOTH_CONNECT
+            ) == PackageManager.PERMISSION_GRANTED
 
     /**
      * 检查有线耳机是否连接
@@ -416,7 +435,8 @@ class AudioRouteManager @Inject constructor(
         return devices.any { device ->
             device.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
             device.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES ||
-            device.type == AudioDeviceInfo.TYPE_USB_HEADSET
+            (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                device.type == AudioDeviceInfo.TYPE_USB_HEADSET)
         }
     }
 

@@ -5,7 +5,6 @@
     <string name="empty_string" translatable="false"></string>
     
     <!-- Coze AI配置 -->
-    <string name="coze_access_token">sat_eVjTTiWmn6vnUrc4f4R4PNAkbfkKSQgztbOg7MS1xqL4z0HPidRI9BqyiErlTI0r</string>
     <string name="coze_base_url">https://api.coze.cn</string>
     <string name="coze_bot_id">7526888735221415975</string>
     <string name="coze_voice_id">7426725529589530651</string>
@@ -21,13 +20,10 @@
 
     <!-- 旧统一协议 WebSocket（占位符模板） -->
     <string name="ai_ws_volcano_url">YOUR_VOLCANO_WS_URL</string>
-    <string name="ai_ws_volcano_token">YOUR_VOLCANO_WS_TOKEN</string>
 
     <string name="ai_ws_bailian_url">YOUR_BAILIAN_WS_URL</string>
-    <string name="ai_ws_bailian_token">YOUR_BAILIAN_WS_TOKEN</string>
     
     <!-- 百炼相关配置（模板） -->
-    <string name="ai_bailian_api_key">sk-9ad0f2007b774cdd930141c8aa89bd3a</string>
     <string name="ai_bailian_realtime_url">wss://dashscope.aliyuncs.com/api-ws/v1/realtime</string>
     <string name="ai_bailian_llm_base_url">https://dashscope.aliyuncs.com/compatible-mode/v1</string>
     <string name="ai_bailian_asr_model">qwen3-asr-flash-realtime</string>
@@ -41,7 +37,6 @@
     <!-- 火山 V3（二进制）相关配置（模板） -->
     <string name="ai_volcano_ws_mode">json</string>
     <string name="ai_volcano_app_id">YOUR_VOLCANO_APP_ID</string>
-    <string name="ai_volcano_access_key">YOUR_VOLCANO_ACCESS_KEY</string>
     <string name="ai_volcano_asr_resource_id">YOUR_VOLCANO_ASR_RESOURCE_ID</string>
     <string name="ai_volcano_tts_resource_id">YOUR_VOLCANO_TTS_RESOURCE_ID</string>
     <string name="ai_volcano_asr_url">wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async</string>
@@ -49,7 +44,35 @@
     <string name="ai_volcano_tts_voice">YOUR_VOLCANO_TTS_VOICE</string>
     <string name="ai_volcano_tts_model">seed-tts-2.0</string>
     <string name="ai_volcano_tts_sample_rate">24000</string>
-    <string name="ai_volcano_ark_api_key">YOUR_VOLCANO_ARK_API_KEY</string>
     <string name="ai_volcano_ark_base_url">https://ark.cn-beijing.volces.com/api/v3</string>
     <string name="ai_volcano_ark_model">YOUR_VOLCANO_ARK_MODEL</string>
+
+    <!-- 新闻播报节目配置（MVP） -->
+    <string name="news_program_enabled">true</string>
+    <string name="news_program_allow_voice_start">true</string>
+    <!-- 仅当第三方内容具备“全文分发 + 终端播报”授权时才设置为 true -->
+    <string name="news_program_fulltext_authorized">false</string>
+    <string name="news_program_auto_start_on_app_open">true</string>
+    <string name="news_program_default_keyword">科技</string>
+    <string name="news_program_default_language">zh</string>
+    <string name="news_program_no_content_retry_minutes">5</string>
+
+    <!-- Provider 配置：默认给出 NewsAPI 的可联调模板（需替换你自己的 key） -->
+    <!-- 示例请求：/v2/everything?q={keyword}&language={language}&page={page} -->
+    <string name="news_program_feed_url_template">https://newsapi.org/v2/everything?q={keyword}&amp;language={language}&amp;page={page}&amp;sortBy=publishedAt&amp;pageSize=20</string>
+    <!-- 若 feed 已包含可播报正文（如 content 字段），可留空 content endpoint -->
+    <string name="news_program_content_url_template"></string>
+    <string name="news_program_api_key_header_name"></string>
+    <string name="news_program_api_key_query_name">apiKey</string>
+    <string name="news_program_feed_items_path">articles</string>
+    <string name="news_program_feed_id_path">url</string>
+    <string name="news_program_feed_title_path">title</string>
+    <string name="news_program_feed_source_path">source.name</string>
+    <string name="news_program_feed_published_at_path">publishedAt</string>
+    <string name="news_program_feed_url_path">url</string>
+    <string name="news_program_feed_language_path">language</string>
+    <string name="news_program_feed_description_path">description</string>
+    <!-- NewsAPI 的 content 为联调可用正文片段；生产需替换为已授权全文 provider -->
+    <string name="news_program_feed_content_path">content</string>
+    <string name="news_program_content_text_path">content</string>
 </resources>

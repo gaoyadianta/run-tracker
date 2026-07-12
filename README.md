@@ -99,6 +99,13 @@ these step.
 MAPS_API_KEY=your_maps_api_key
 ```
 
+### Local SDK and service configuration
+
+Copy `local.properties.example` to `local.properties`, set `sdk.dir`, and provide only the
+credentials needed by the selected map/AI/news providers. `local.properties` is ignored by Git.
+CI credentials can be supplied as Gradle `-P` properties or environment variables with the same
+names shown in the example file. Never place access tokens in `strings.xml`.
+
 ## Project Status
 
 These features are left to be implemented:

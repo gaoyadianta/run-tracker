@@ -1,8 +1,13 @@
 package com.sdevprem.runtrack.ai.audio
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import androidx.core.content.ContextCompat
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +22,7 @@ import javax.inject.Singleton
 
 @Singleton
 class WebSocketAudioRecorder @Inject constructor(
+    @ApplicationContext private val context: Context
 ) {
     companion object {
         const val SAMPLE_RATE = 16000
@@ -36,6 +42,14 @@ class WebSocketAudioRecorder @Inject constructor(
 
     fun start() {
         if (recordingJob != null) return
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Timber.w("麦克风权限未授予，无法启动音频采集")
+            return
+        }
 
         val minBufferSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
         if (minBufferSize <= 0) {

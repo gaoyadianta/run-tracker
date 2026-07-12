@@ -1,0 +1,11 @@
+# Copy this file to local.properties. Never commit real credentials.
+sdk.dir=/path/to/Android/sdk
+MAPS_API_KEY=
+AMAP_API_KEY=
+COZE_ACCESS_TOKEN=
+AI_WS_VOLCANO_TOKEN=
+AI_WS_BAILIAN_TOKEN=
+AI_BAILIAN_API_KEY=
+AI_VOLCANO_ACCESS_KEY=
+AI_VOLCANO_ARK_API_KEY=
+NEWS_PROGRAM_API_KEY=

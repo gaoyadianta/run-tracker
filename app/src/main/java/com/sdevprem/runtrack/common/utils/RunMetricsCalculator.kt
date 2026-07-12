@@ -12,7 +12,10 @@ object RunMetricsCalculator {
         pathPoints: List<PathPoint>,
         totalDurationMs: Long
     ): RunMetricsData {
-        val locationPoints = pathPoints.mapNotNull { it as? PathPoint.LocationPoint }
+        val indexedLocationPoints = pathPoints.mapIndexedNotNull { index, point ->
+            (point as? PathPoint.LocationPoint)?.let { index to it }
+        }
+        val locationPoints = indexedLocationPoints.map { it.second }
         if (locationPoints.size < 2) return RunMetricsData()
 
         val times = buildTimeSeries(locationPoints, totalDurationMs)
@@ -27,6 +30,8 @@ object RunMetricsCalculator {
         var kmIndex = 1
 
         for (i in 1 until locationPoints.size) {
+            // EmptyLocationPoint marks a pause boundary; never bridge it with a metric segment.
+            if (indexedLocationPoints[i].first != indexedLocationPoints[i - 1].first + 1) continue
             val prev = locationPoints[i - 1]
             val curr = locationPoints[i]
             val dtMs = (times[i] - times[i - 1]).coerceAtLeast(0L)

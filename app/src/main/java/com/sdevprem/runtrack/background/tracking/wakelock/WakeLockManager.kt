@@ -11,6 +11,10 @@ import javax.inject.Singleton
 class WakeLockManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
+    private companion object {
+        const val WAKE_LOCK_TIMEOUT_MS = 10 * 60 * 1_000L
+    }
+
     private var wakeLock: PowerManager.WakeLock? = null
     private val powerManager by lazy {
         context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -27,7 +31,7 @@ class WakeLockManager @Inject constructor(
             "RunTrack::LocationTracking"
         ).apply {
             setReferenceCounted(false)
-            acquire()
+            acquire(WAKE_LOCK_TIMEOUT_MS)
             Timber.d("WakeLock acquired")
         }
     }
