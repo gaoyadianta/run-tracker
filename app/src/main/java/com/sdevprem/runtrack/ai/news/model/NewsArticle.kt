@@ -8,5 +8,5 @@ data class NewsArticle(
     val url: String,
     val language: String? = null,
     val description: String? = null,
-    val fullText: String? = null
+    val contentSnippet: String? = null
 )

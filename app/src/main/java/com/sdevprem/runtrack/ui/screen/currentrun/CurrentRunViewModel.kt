@@ -258,7 +258,7 @@ class CurrentRunViewModel @Inject constructor(
         val pathPoints = runState.currentRunState.pathPoints.toList()
         val cadenceSeries = trackingManager.getCadenceSeries()
         val strideLengthSeries = trackingManager.getStrideLengthSeries()
-        val newsHistory = aiCompanionManager.consumeNewsSessionHistory()
+        val newsHistory = aiCompanionManager.snapshotNewsSessionHistory()
         
         // 计算平均步频：如果跑步时间大于0，则计算平均值，否则使用当前值
         val avgStepsPerMinute = RunCompletionMetrics.averageCadence(
@@ -361,12 +361,15 @@ class CurrentRunViewModel @Inject constructor(
                                 source = item.source,
                                 publishedAtEpochMs = item.publishedAtEpochMs,
                                 articleUrl = item.articleUrl,
-                                playedAtEpochMs = item.playedAtEpochMs
+                                playedAtEpochMs = item.playedAtEpochMs,
+                                briefText = item.briefText,
+                                completed = item.completed
                             )
                         }
                     )
                 )
                 trackingManager.stop()
+                aiCompanionManager.resetNewsSessionHistory()
                 lastRegularBroadcastTime = 0L
                 _integratedRunState.value = _integratedRunState.value.copy(
                     runningState = RunningState.STOPPED,
@@ -399,12 +402,16 @@ class CurrentRunViewModel @Inject constructor(
     fun toggleNewsPlayback() {
         when (newsPlaybackState.value.status) {
             NewsPlaybackStatus.RUNNING,
+            NewsPlaybackStatus.PREPARING,
             NewsPlaybackStatus.FETCHING -> aiCompanionManager.pauseNewsReadout()
             NewsPlaybackStatus.PAUSED,
             NewsPlaybackStatus.INTERRUPTED -> aiCompanionManager.resumeNewsReadout()
             NewsPlaybackStatus.IDLE,
             NewsPlaybackStatus.NO_CONTENT,
             NewsPlaybackStatus.STOPPED,
+            NewsPlaybackStatus.CONFIGURATION_ERROR,
+            NewsPlaybackStatus.OFFLINE,
+            NewsPlaybackStatus.RATE_LIMITED,
             NewsPlaybackStatus.ERROR -> aiCompanionManager.startNewsReadout()
         }
     }

@@ -2,13 +2,24 @@ package com.sdevprem.runtrack.ai.news.model
 
 enum class NewsPlaybackStatus {
     IDLE,
+    PREPARING,
     FETCHING,
     RUNNING,
     PAUSED,
     INTERRUPTED,
     NO_CONTENT,
     STOPPED,
+    CONFIGURATION_ERROR,
+    OFFLINE,
+    RATE_LIMITED,
     ERROR
+}
+
+enum class NewsPauseReason {
+    USER,
+    COMPANION,
+    AUDIO_FOCUS_TRANSIENT,
+    AUDIO_FOCUS_PERMANENT
 }
 
 data class NewsPlaybackState(
@@ -21,5 +32,6 @@ data class NewsPlaybackState(
     val currentArticleUrl: String? = null,
     val currentSentenceIndex: Int = 0,
     val totalSentences: Int = 0,
-    val message: String? = null
+    val message: String? = null,
+    val pauseReason: NewsPauseReason? = null
 )

@@ -5,5 +5,7 @@ data class RunSessionNewsHistoryItem(
     val source: String,
     val publishedAtEpochMs: Long?,
     val articleUrl: String,
-    val playedAtEpochMs: Long
+    val playedAtEpochMs: Long,
+    val briefText: String,
+    val completed: Boolean
 )

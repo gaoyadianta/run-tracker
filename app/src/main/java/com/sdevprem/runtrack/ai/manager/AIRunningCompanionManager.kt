@@ -416,7 +416,6 @@ class AIRunningCompanionManager @Inject constructor(
         if (!newsProgramConfig.autoStartOnAppOpen) return
         hasAutoStartedNewsOnAppOpen = true
         if (!newsProgramConfig.enabled) return
-        if (!newsProgramConfig.fullTextAuthorized) return
         if (!newsProgramConfig.isProviderConfigured()) return
         startNewsReadout(
             keyword = newsProgramConfig.defaultKeyword,
@@ -425,9 +424,6 @@ class AIRunningCompanionManager @Inject constructor(
     }
 
     fun startNewsReadout(keyword: String? = null, language: String? = null) {
-        if (!newsProgramConfig.enabled) {
-            return
-        }
         newsProgram.start(
             keyword = keyword?.trim().takeUnless { it.isNullOrBlank() },
             language = language?.ifBlank { newsProgramConfig.defaultLanguage } ?: newsProgramConfig.defaultLanguage
@@ -454,8 +450,8 @@ class AIRunningCompanionManager @Inject constructor(
         newsProgram.clearSessionHistory()
     }
 
-    fun consumeNewsSessionHistory(): List<RunSessionNewsHistoryItem> {
-        return newsProgram.consumeSessionHistory()
+    fun snapshotNewsSessionHistory(): List<RunSessionNewsHistoryItem> {
+        return newsProgram.sessionHistorySnapshot()
     }
     
     

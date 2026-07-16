@@ -3,12 +3,16 @@ package com.sdevprem.runtrack.ai.news
 import android.media.AudioManager
 import com.sdevprem.runtrack.ai.audio.AudioFocusCoordinator
 import com.sdevprem.runtrack.ai.news.config.NewsProgramConfig
-import com.sdevprem.runtrack.ai.news.model.NewsArticle
+import com.sdevprem.runtrack.ai.news.model.NewsBrief
+import com.sdevprem.runtrack.ai.news.model.NewsBriefRequest
+import com.sdevprem.runtrack.ai.news.model.NewsFailure
+import com.sdevprem.runtrack.ai.news.model.NewsPauseReason
 import com.sdevprem.runtrack.ai.news.model.NewsPlaybackState
 import com.sdevprem.runtrack.ai.news.model.NewsPlaybackStatus
 import com.sdevprem.runtrack.ai.news.model.RunSessionNewsHistoryItem
-import com.sdevprem.runtrack.ai.news.provider.ConfigurableNewsProvider
-import com.sdevprem.runtrack.ai.news.tts.LocalTtsChannel
+import com.sdevprem.runtrack.ai.news.provider.NewsProvider
+import com.sdevprem.runtrack.ai.news.tts.SpeechChannel
+import com.sdevprem.runtrack.ai.news.tts.SpeechEvent
 import com.sdevprem.runtrack.di.MainDispatcher
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
@@ -17,67 +21,146 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.selects.select
-import timber.log.Timber
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.max
 
 @Singleton
 class NewsProgram @Inject constructor(
     private val config: NewsProgramConfig,
-    private val newsProvider: ConfigurableNewsProvider,
-    private val speechChannel: LocalTtsChannel,
+    private val newsProvider: NewsProvider,
+    private val speechChannel: SpeechChannel,
     private val audioFocusCoordinator: AudioFocusCoordinator,
     @MainDispatcher mainDispatcher: CoroutineDispatcher
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + mainDispatcher)
-    private val _playbackState = kotlinx.coroutines.flow.MutableStateFlow(NewsPlaybackState())
-    val playbackState: kotlinx.coroutines.flow.StateFlow<NewsPlaybackState> = _playbackState
+    companion object {
+        private const val MAX_NO_CONTENT_RETRIES = 3
+    }
 
-    private var currentArticles: List<NewsArticle> = emptyList()
-    private var currentArticleIndex = 0
+    private val scope = CoroutineScope(SupervisorJob() + mainDispatcher)
+    private val _playbackState = MutableStateFlow(configurationAwareIdleState())
+    val playbackState: StateFlow<NewsPlaybackState> = _playbackState.asStateFlow()
+
+    private var currentBriefs: List<NewsBrief> = emptyList()
+    private var currentBriefIndex = 0
     private var currentSentences: List<String> = emptyList()
     private var currentSentenceIndex = 0
-    private var activeSentenceIndex: Int? = null
+    private var activeUtteranceId: String? = null
+    private var waitingUtterance: CompletableDeferred<Boolean>? = null
+    private var fetchJob: Job? = null
     private var playbackJob: Job? = null
     private var noContentRetryJob: Job? = null
-    private var waitingUtterance: CompletableDeferred<Boolean>? = null
-    private var isCompanionInterrupted = false
+    private var noContentRetryCount = 0
 
     private val sessionHistory = mutableListOf<RunSessionNewsHistoryItem>()
-    private val playedArticleKeys = mutableSetOf<String>()
+    private val historyIndexByBriefId = mutableMapOf<String, Int>()
+    private val playedBriefKeys = mutableSetOf<String>()
 
     init {
-        audioFocusCoordinator.setNewsFocusChangeListener { focusChange ->
-            when (focusChange) {
-                AudioManager.AUDIOFOCUS_LOSS,
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
-                    scope.launch {
-                        pauseByAudioFocusLossIfNeeded()
-                    }
-                }
-                else -> Unit
-            }
+        audioFocusCoordinator.setNewsFocusChangeListener(::onAudioFocusChanged)
+        scope.launch {
+            config.settingsUpdates.collect { refreshIdleConfigurationState() }
         }
         scope.launch {
-            speechChannel.utteranceDone.collect { utteranceId ->
-                waitingUtterance?.complete(true)
-                Timber.v("news utterance done: $utteranceId")
-            }
-        }
-        scope.launch {
-            speechChannel.utteranceError.collect { utteranceId ->
-                waitingUtterance?.complete(false)
-                Timber.w("news utterance error: $utteranceId")
-            }
+            speechChannel.events.collect(::onSpeechEvent)
         }
     }
 
     fun start(keyword: String?, language: String) {
+        noContentRetryCount = 0
+        startInternal(keyword = keyword, language = language, resetQueue = true)
+    }
+
+    fun pause() {
+        val status = _playbackState.value.status
+        if (status !in setOf(
+                NewsPlaybackStatus.PREPARING,
+                NewsPlaybackStatus.FETCHING,
+                NewsPlaybackStatus.RUNNING
+            )
+        ) return
+        pauseForReason(NewsPauseReason.USER)
+    }
+
+    fun resume() {
+        val state = _playbackState.value
+        if (state.status !in setOf(
+                NewsPlaybackStatus.PAUSED,
+                NewsPlaybackStatus.INTERRUPTED,
+                NewsPlaybackStatus.NO_CONTENT,
+                NewsPlaybackStatus.STOPPED,
+                NewsPlaybackStatus.OFFLINE,
+                NewsPlaybackStatus.RATE_LIMITED,
+                NewsPlaybackStatus.ERROR
+            )
+        ) return
+        cancelNoContentRetry()
+        _playbackState.value = state.copy(pauseReason = null, message = null)
+        if (currentBriefs.isEmpty()) {
+            startInternal(state.keyword, state.language, resetQueue = true)
+        } else {
+            startSentencePlayback()
+        }
+    }
+
+    fun skip() {
+        cancelNoContentRetry()
+        if (currentBriefs.isEmpty()) return
+        cancelActiveWork(stopSpeech = true, abandonFocus = true, cancelFetch = false)
+        currentBriefIndex += 1
+        currentSentenceIndex = 0
+        currentSentences = emptyList()
+        if (currentBriefIndex >= currentBriefs.size) {
+            enterNoContent("已播完当前列表")
+        } else {
+            prepareCurrentBrief()
+            startSentencePlayback()
+        }
+    }
+
+    fun stop() {
+        cancelNoContentRetry()
+        cancelActiveWork(stopSpeech = true, abandonFocus = true, cancelFetch = true)
+        clearQueue()
+        _playbackState.value = NewsPlaybackState(
+            status = NewsPlaybackStatus.STOPPED,
+            keyword = _playbackState.value.keyword,
+            language = _playbackState.value.language
+        )
+    }
+
+    fun onCompanionInterruptStart() {
+        if (_playbackState.value.status == NewsPlaybackStatus.RUNNING) {
+            pauseForReason(NewsPauseReason.COMPANION)
+        }
+    }
+
+    fun onCompanionInterruptEnd() {
+        resumeIfAutomaticallyPaused(NewsPauseReason.COMPANION)
+    }
+
+    fun clearSessionHistory() {
+        sessionHistory.clear()
+        historyIndexByBriefId.clear()
+        playedBriefKeys.clear()
+    }
+
+    fun sessionHistorySnapshot(): List<RunSessionNewsHistoryItem> = sessionHistory.toList()
+
+    fun destroy() {
+        cancelNoContentRetry()
+        cancelActiveWork(stopSpeech = true, abandonFocus = true, cancelFetch = true)
+        audioFocusCoordinator.setNewsFocusChangeListener(null)
+        speechChannel.shutdown()
+        scope.cancel()
+    }
+
+    private fun startInternal(keyword: String?, language: String, resetQueue: Boolean) {
         cancelNoContentRetry()
         val resolvedKeyword = keyword?.trim().takeUnless { it.isNullOrBlank() }
             ?: _playbackState.value.keyword
@@ -85,270 +168,164 @@ class NewsProgram @Inject constructor(
             ?: "科技"
         val resolvedLanguage = language.ifBlank { config.defaultLanguage }
 
-        if (!config.enabled) {
-            setError("新闻节目未启用")
-            return
-        }
-        if (!config.fullTextAuthorized) {
-            setError("新闻全文播报未授权，无法开启")
-            return
-        }
-        if (!config.isProviderConfigured()) {
-            setError("新闻服务未配置")
+        if (!config.enabled || !config.isProviderConfigured()) {
+            setFailure(NewsFailure.NotConfigured)
             return
         }
 
-        stopPlayback(clearState = false, keepMessage = false)
-        currentArticles = emptyList()
-        currentArticleIndex = 0
-        currentSentences = emptyList()
-        currentSentenceIndex = 0
-        activeSentenceIndex = null
-        isCompanionInterrupted = false
-
-        _playbackState.value = _playbackState.value.copy(
-            status = NewsPlaybackStatus.FETCHING,
+        cancelActiveWork(stopSpeech = true, abandonFocus = true, cancelFetch = true)
+        if (resetQueue) clearQueue()
+        _playbackState.value = NewsPlaybackState(
+            status = NewsPlaybackStatus.PREPARING,
             keyword = resolvedKeyword,
             language = resolvedLanguage,
-            message = null,
-            currentTitle = null,
-            currentSource = null,
-            currentPublishedAtEpochMs = null,
-            currentArticleUrl = null,
-            currentSentenceIndex = 0,
-            totalSentences = 0
+            message = "正在获取并生成新闻简报"
         )
 
-        playbackJob = scope.launch {
-            val feedResult = newsProvider.fetchFeed(resolvedKeyword, resolvedLanguage)
-            val articles = feedResult.getOrElse { error ->
-                setError("获取新闻列表失败：${error.message ?: "未知错误"}")
+        fetchJob = scope.launch {
+            _playbackState.value = _playbackState.value.copy(status = NewsPlaybackStatus.FETCHING)
+            val result = newsProvider.fetchBriefs(
+                NewsBriefRequest(
+                    keyword = resolvedKeyword,
+                    language = resolvedLanguage
+                )
+            )
+            val batch = result.getOrElse { error ->
+                val failure = error as? NewsFailure ?: NewsFailure.Provider("新闻简报生成失败", error)
+                if (failure == NewsFailure.NoContent) {
+                    enterNoContent("暂无可播报新闻")
+                } else {
+                    setFailure(failure)
+                }
                 return@launch
             }
-            if (articles.isEmpty()) {
-                enterNoContent("暂无相关新闻")
+            val freshBriefs = batch.briefs.filter { brief ->
+                briefKeys(brief).none(playedBriefKeys::contains)
+            }
+            if (freshBriefs.isEmpty()) {
+                enterNoContent("暂无新的可播报新闻")
                 return@launch
             }
-            currentArticles = articles
-            currentArticleIndex = 0
+            noContentRetryCount = 0
+            currentBriefs = freshBriefs
+            currentBriefIndex = 0
             currentSentenceIndex = 0
-            loadArticleAndStartPlayback()
+            prepareCurrentBrief()
+            startSentencePlayback()
         }
     }
 
-    fun pause() {
-        cancelNoContentRetry()
-        val status = _playbackState.value.status
-        if (status != NewsPlaybackStatus.RUNNING && status != NewsPlaybackStatus.FETCHING) {
-            return
-        }
-        stopPlayback(clearState = false, keepMessage = true)
-        _playbackState.value = _playbackState.value.copy(
-            status = NewsPlaybackStatus.PAUSED,
-            message = null
+    private fun configurationAwareIdleState(): NewsPlaybackState = when {
+        !config.enabled -> NewsPlaybackState(
+            status = NewsPlaybackStatus.CONFIGURATION_ERROR,
+            message = "新闻功能已关闭，请在设置中启用"
+        )
+        !config.isProviderConfigured() -> NewsPlaybackState(
+            status = NewsPlaybackStatus.CONFIGURATION_ERROR,
+            message = "新闻服务未配置"
+        )
+        else -> NewsPlaybackState()
+    }
+
+    private fun refreshIdleConfigurationState() {
+        if (_playbackState.value.status !in setOf(
+                NewsPlaybackStatus.IDLE,
+                NewsPlaybackStatus.STOPPED,
+                NewsPlaybackStatus.CONFIGURATION_ERROR
+            )
+        ) return
+        val next = configurationAwareIdleState()
+        _playbackState.value = next.copy(
+            keyword = _playbackState.value.keyword,
+            language = _playbackState.value.language
         )
     }
 
-    fun resume() {
-        cancelNoContentRetry()
-        val status = _playbackState.value.status
-        if (status != NewsPlaybackStatus.PAUSED && status != NewsPlaybackStatus.INTERRUPTED && status != NewsPlaybackStatus.NO_CONTENT && status != NewsPlaybackStatus.ERROR && status != NewsPlaybackStatus.STOPPED) {
-            return
-        }
-
-        if (currentArticles.isEmpty()) {
-            start(keyword = _playbackState.value.keyword, language = _playbackState.value.language)
-            return
-        }
-
-        if (currentSentences.isNotEmpty()) {
-            startSentencePlayback()
-            return
-        }
-
-        playbackJob = scope.launch {
-            loadArticleAndStartPlayback()
-        }
-    }
-
-    fun skip() {
-        cancelNoContentRetry()
-        if (currentArticles.isEmpty()) return
-        stopPlayback(clearState = false, keepMessage = true)
-        currentArticleIndex += 1
-        currentSentenceIndex = 0
-        activeSentenceIndex = null
-
-        if (currentArticleIndex >= currentArticles.size) {
-            enterNoContent("已播完当前列表")
-            return
-        }
-
-        playbackJob = scope.launch {
-            loadArticleAndStartPlayback()
-        }
-    }
-
-    fun stop() {
-        cancelNoContentRetry()
-        stopPlayback(clearState = true, keepMessage = false)
-    }
-
-    fun onCompanionInterruptStart() {
-        val status = _playbackState.value.status
-        if (status != NewsPlaybackStatus.RUNNING) return
-        isCompanionInterrupted = true
-        val resumeIndex = activeSentenceIndex?.let { it + 1 } ?: currentSentenceIndex
-        currentSentenceIndex = max(resumeIndex, currentSentenceIndex)
-        stopPlayback(clearState = false, keepMessage = true)
+    private fun prepareCurrentBrief() {
+        val brief = currentBriefs.getOrNull(currentBriefIndex) ?: return
+        val body = NewsTextUtils.splitToSentences(brief.spokenText)
+        val alreadyIntroduced = brief.spokenText.contains(brief.title, ignoreCase = true) &&
+            brief.spokenText.contains(brief.sourceName, ignoreCase = true)
+        currentSentences = if (alreadyIntroduced) body else listOf(buildIntroSentence(brief)) + body
+        currentSentenceIndex = currentSentenceIndex.coerceIn(0, currentSentences.lastIndex.coerceAtLeast(0))
         _playbackState.value = _playbackState.value.copy(
-            status = NewsPlaybackStatus.INTERRUPTED,
-            currentSentenceIndex = currentSentenceIndex.coerceAtMost(_playbackState.value.totalSentences),
-            message = "陪跑插播中，新闻将自动继续"
+            status = NewsPlaybackStatus.PREPARING,
+            currentTitle = brief.title,
+            currentSource = brief.sourceName,
+            currentPublishedAtEpochMs = brief.publishedAtEpochMs,
+            currentArticleUrl = brief.articleUrl,
+            currentSentenceIndex = currentSentenceIndex,
+            totalSentences = currentSentences.size,
+            message = "准备播报",
+            pauseReason = null
         )
-    }
-
-    fun onCompanionInterruptEnd() {
-        if (!isCompanionInterrupted) return
-        isCompanionInterrupted = false
-        if (_playbackState.value.status == NewsPlaybackStatus.INTERRUPTED) {
-            resume()
-        }
-    }
-
-    fun clearSessionHistory() {
-        cancelNoContentRetry()
-        sessionHistory.clear()
-        playedArticleKeys.clear()
-    }
-
-    fun consumeSessionHistory(): List<RunSessionNewsHistoryItem> {
-        val snapshot = sessionHistory.toList()
-        sessionHistory.clear()
-        playedArticleKeys.clear()
-        return snapshot
-    }
-
-    fun destroy() {
-        cancelNoContentRetry()
-        stopPlayback(clearState = true, keepMessage = false)
-        audioFocusCoordinator.setNewsFocusChangeListener(null)
-        audioFocusCoordinator.abandonNewsFocus()
-        speechChannel.shutdown()
-        scope.cancel()
-    }
-
-    private suspend fun loadArticleAndStartPlayback() {
-        while (currentArticleIndex < currentArticles.size) {
-            val article = currentArticles[currentArticleIndex]
-            _playbackState.value = _playbackState.value.copy(
-                status = NewsPlaybackStatus.FETCHING,
-                currentTitle = article.title,
-                currentSource = article.sourceName,
-                currentPublishedAtEpochMs = article.publishedAtEpochMs,
-                currentArticleUrl = article.url,
-                message = "获取内容中"
-            )
-
-            val contentResult = newsProvider.fetchContent(article)
-            if (contentResult.isFailure) {
-                Timber.w(contentResult.exceptionOrNull(), "Load article failed, skip: ${article.url}")
-                currentArticleIndex += 1
-                currentSentenceIndex = 0
-                delay(100L)
-                continue
-            }
-            val content = contentResult.getOrNull().orEmpty()
-
-            val bodySentences = NewsTextUtils.splitToSentences(content)
-            if (bodySentences.isEmpty()) {
-                currentArticleIndex += 1
-                currentSentenceIndex = 0
-                continue
-            }
-
-            val intro = buildIntroSentence(article)
-            currentSentences = listOf(intro) + bodySentences
-            currentSentenceIndex = 0
-            rememberArticleHistory(article)
-
-            _playbackState.value = _playbackState.value.copy(
-                status = NewsPlaybackStatus.RUNNING,
-                currentTitle = article.title,
-                currentSource = article.sourceName,
-                currentPublishedAtEpochMs = article.publishedAtEpochMs,
-                currentArticleUrl = article.url,
-                currentSentenceIndex = 0,
-                totalSentences = currentSentences.size,
-                message = null
-            )
-            startSentencePlayback()
-            return
-        }
-
-        enterNoContent("暂无可播报内容")
     }
 
     private fun startSentencePlayback() {
-        stopPlayback(
-            clearState = false,
-            keepMessage = true,
-            stopSpeech = false,
-            abandonNewsFocus = false
-        )
+        playbackJob?.cancel()
         playbackJob = scope.launch {
-            val ready = speechChannel.awaitReady()
-            if (!ready) {
-                setError("本地 TTS 不可用")
+            if (!speechChannel.awaitReady()) {
+                setFailure(NewsFailure.TtsUnavailable)
                 return@launch
             }
-            val focusGranted = audioFocusCoordinator.requestNewsFocus()
-            if (!focusGranted) {
-                setError("无法获取音频焦点")
+            val languageResult = speechChannel.setLanguage(_playbackState.value.language)
+            if (languageResult.isFailure) {
+                setFailure(languageResult.exceptionOrNull() as? NewsFailure ?: NewsFailure.TtsUnavailable)
                 return@launch
             }
-            speechChannel.setLanguage(_playbackState.value.language)
+            if (!audioFocusCoordinator.requestNewsFocus()) {
+                setFailure(NewsFailure.TtsUnavailable)
+                return@launch
+            }
             _playbackState.value = _playbackState.value.copy(
                 status = NewsPlaybackStatus.RUNNING,
-                message = null
+                message = null,
+                pauseReason = null
             )
 
-            while (currentArticleIndex < currentArticles.size) {
+            while (currentBriefIndex < currentBriefs.size) {
+                if (currentSentences.isEmpty()) prepareCurrentBrief()
                 if (currentSentenceIndex >= currentSentences.size) {
-                    currentArticleIndex += 1
+                    markCurrentBriefCompleted()
+                    currentBriefIndex += 1
                     currentSentenceIndex = 0
                     currentSentences = emptyList()
-                    loadArticleAndStartPlayback()
-                    return@launch
-                }
-
-                val sentence = currentSentences[currentSentenceIndex]
-                val utteranceId = "news_${currentArticleIndex}_${currentSentenceIndex}_${System.currentTimeMillis()}"
-                activeSentenceIndex = currentSentenceIndex
-                waitingUtterance = CompletableDeferred()
-
-                val accepted = speechChannel.speak(sentence, utteranceId)
-                if (!accepted) {
-                    setError("新闻播报失败")
-                    return@launch
-                }
-
-                val completed = waitUtteranceResult()
-                waitingUtterance = null
-                activeSentenceIndex = null
-
-                if (!completed) {
-                    if (_playbackState.value.status == NewsPlaybackStatus.PAUSED ||
-                        _playbackState.value.status == NewsPlaybackStatus.INTERRUPTED ||
-                        _playbackState.value.status == NewsPlaybackStatus.STOPPED ||
-                        _playbackState.value.status == NewsPlaybackStatus.IDLE
-                    ) {
+                    if (currentBriefIndex >= currentBriefs.size) {
+                        enterNoContent("已播完当前列表")
                         return@launch
                     }
-                    setError("新闻播报中断")
+                    prepareCurrentBrief()
+                    _playbackState.value = _playbackState.value.copy(status = NewsPlaybackStatus.RUNNING, message = null)
+                    continue
+                }
+
+                val utteranceId = "news_${currentBriefIndex}_${currentSentenceIndex}_${System.currentTimeMillis()}"
+                activeUtteranceId = utteranceId
+                val waiter = CompletableDeferred<Boolean>()
+                waitingUtterance = waiter
+                if (!speechChannel.speak(currentSentences[currentSentenceIndex], utteranceId)) {
+                    activeUtteranceId = null
+                    waitingUtterance = null
+                    setFailure(NewsFailure.TtsUnavailable)
                     return@launch
                 }
 
+                val completed = waiter.await()
+                waitingUtterance = null
+                activeUtteranceId = null
+                if (!completed) {
+                    if (_playbackState.value.status in setOf(
+                            NewsPlaybackStatus.PAUSED,
+                            NewsPlaybackStatus.INTERRUPTED,
+                            NewsPlaybackStatus.STOPPED,
+                            NewsPlaybackStatus.IDLE
+                        )
+                    ) return@launch
+                    setFailure(NewsFailure.TtsUnavailable)
+                    return@launch
+                }
+
+                rememberCurrentBriefStarted()
                 currentSentenceIndex += 1
                 _playbackState.value = _playbackState.value.copy(
                     status = NewsPlaybackStatus.RUNNING,
@@ -359,106 +336,148 @@ class NewsProgram @Inject constructor(
         }
     }
 
-    private suspend fun waitUtteranceResult(): Boolean {
-        val waiter = waitingUtterance ?: return false
-        val cancelSignal = CompletableDeferred<Boolean>()
-        val job = scope.launch {
-            while (!cancelSignal.isCompleted) {
-                if (_playbackState.value.status != NewsPlaybackStatus.RUNNING) {
-                    cancelSignal.complete(false)
-                    return@launch
-                }
-                delay(80L)
-            }
-        }
-        return try {
-            select {
-                waiter.onAwait { it }
-                cancelSignal.onAwait { it }
-            }
-        } finally {
-            job.cancel()
-        }
-    }
-
-    private fun rememberArticleHistory(article: NewsArticle) {
-        val key = article.id.ifBlank { article.url }
-        if (!playedArticleKeys.add(key)) return
-        sessionHistory += RunSessionNewsHistoryItem(
-            title = article.title,
-            source = article.sourceName,
-            publishedAtEpochMs = article.publishedAtEpochMs,
-            articleUrl = article.url,
-            playedAtEpochMs = System.currentTimeMillis()
-        )
-    }
-
-    private fun stopPlayback(
-        clearState: Boolean,
-        keepMessage: Boolean,
-        stopSpeech: Boolean = true,
-        abandonNewsFocus: Boolean = true
-    ) {
-        playbackJob?.cancel()
-        playbackJob = null
-        waitingUtterance?.complete(false)
-        waitingUtterance = null
-        activeSentenceIndex = null
-        if (stopSpeech) {
-            speechChannel.stop()
-        }
-        if (abandonNewsFocus) {
-            audioFocusCoordinator.abandonNewsFocus()
-        }
-
-        if (!clearState) return
-        currentArticles = emptyList()
-        currentArticleIndex = 0
-        currentSentences = emptyList()
-        currentSentenceIndex = 0
-        _playbackState.value = NewsPlaybackState(
-            status = NewsPlaybackStatus.STOPPED,
-            keyword = _playbackState.value.keyword,
-            language = _playbackState.value.language,
-            message = if (keepMessage) _playbackState.value.message else null
-        )
-    }
-
-    private fun setError(message: String) {
+    private fun pauseForReason(reason: NewsPauseReason) {
         cancelNoContentRetry()
-        stopPlayback(clearState = false, keepMessage = true)
+        cancelActiveWork(stopSpeech = true, abandonFocus = true, cancelFetch = true)
         _playbackState.value = _playbackState.value.copy(
-            status = NewsPlaybackStatus.ERROR,
-            message = message
+            status = if (reason == NewsPauseReason.COMPANION) {
+                NewsPlaybackStatus.INTERRUPTED
+            } else {
+                NewsPlaybackStatus.PAUSED
+            },
+            pauseReason = reason,
+            message = when (reason) {
+                NewsPauseReason.USER -> "已由用户暂停"
+                NewsPauseReason.COMPANION -> "陪跑插播中，结束后继续当前句"
+                NewsPauseReason.AUDIO_FOCUS_TRANSIENT -> "音频被临时占用，恢复后继续"
+                NewsPauseReason.AUDIO_FOCUS_PERMANENT -> "音频焦点丢失，请手动继续"
+            }
         )
+    }
+
+    private fun resumeIfAutomaticallyPaused(reason: NewsPauseReason) {
+        val state = _playbackState.value
+        if (state.pauseReason != reason) return
+        if (reason !in setOf(NewsPauseReason.COMPANION, NewsPauseReason.AUDIO_FOCUS_TRANSIENT)) return
+        _playbackState.value = state.copy(pauseReason = null, message = null)
+        if (currentBriefs.isEmpty()) {
+            startInternal(state.keyword, state.language, resetQueue = true)
+        } else {
+            startSentencePlayback()
+        }
+    }
+
+    private fun onAudioFocusChanged(change: Int) {
+        scope.launch {
+            when (change) {
+                AudioManager.AUDIOFOCUS_GAIN -> resumeIfAutomaticallyPaused(NewsPauseReason.AUDIO_FOCUS_TRANSIENT)
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    if (_playbackState.value.status == NewsPlaybackStatus.RUNNING) {
+                        pauseForReason(NewsPauseReason.AUDIO_FOCUS_TRANSIENT)
+                    }
+                }
+                AudioManager.AUDIOFOCUS_LOSS -> {
+                    if (_playbackState.value.status == NewsPlaybackStatus.RUNNING) {
+                        pauseForReason(NewsPauseReason.AUDIO_FOCUS_PERMANENT)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun onSpeechEvent(event: SpeechEvent) {
+        if (event.utteranceId != activeUtteranceId) return
+        waitingUtterance?.complete(event is SpeechEvent.Completed)
+    }
+
+    private fun rememberCurrentBriefStarted() {
+        val brief = currentBriefs.getOrNull(currentBriefIndex) ?: return
+        if (historyIndexByBriefId.containsKey(brief.id)) return
+        playedBriefKeys += briefKeys(brief)
+        val index = sessionHistory.size
+        historyIndexByBriefId[brief.id] = index
+        sessionHistory += RunSessionNewsHistoryItem(
+            title = brief.title,
+            source = brief.sourceName,
+            publishedAtEpochMs = brief.publishedAtEpochMs,
+            articleUrl = brief.articleUrl,
+            playedAtEpochMs = System.currentTimeMillis(),
+            briefText = brief.spokenText,
+            completed = false
+        )
+    }
+
+    private fun markCurrentBriefCompleted() {
+        val brief = currentBriefs.getOrNull(currentBriefIndex) ?: return
+        val index = historyIndexByBriefId[brief.id] ?: return
+        sessionHistory[index] = sessionHistory[index].copy(completed = true)
     }
 
     private fun enterNoContent(message: String) {
+        cancelActiveWork(stopSpeech = true, abandonFocus = true, cancelFetch = false)
+        val canRetry = noContentRetryCount < MAX_NO_CONTENT_RETRIES
         _playbackState.value = _playbackState.value.copy(
             status = NewsPlaybackStatus.NO_CONTENT,
-            message = buildNoContentMessage(message),
+            message = if (canRetry) {
+                "$message，${config.noContentRetryIntervalMs / 60_000L}分钟后自动重试"
+            } else {
+                "$message，请稍后手动重试"
+            },
             currentSentenceIndex = 0,
-            totalSentences = 0
+            totalSentences = 0,
+            pauseReason = null
         )
-        scheduleNoContentRetry()
-    }
-
-    private fun buildNoContentMessage(message: String): String {
-        val retryMinutes = (config.noContentRetryIntervalMs / 60_000L).coerceAtLeast(1L)
-        return "$message，${retryMinutes}分钟后自动重试"
+        if (canRetry) scheduleNoContentRetry()
     }
 
     private fun scheduleNoContentRetry() {
         cancelNoContentRetry()
-        val retryDelayMs = config.noContentRetryIntervalMs
         noContentRetryJob = scope.launch {
-            delay(retryDelayMs)
+            delay(config.noContentRetryIntervalMs)
             if (_playbackState.value.status != NewsPlaybackStatus.NO_CONTENT) return@launch
-            start(
+            noContentRetryCount += 1
+            startInternal(
                 keyword = _playbackState.value.keyword,
-                language = _playbackState.value.language
+                language = _playbackState.value.language,
+                resetQueue = true
             )
         }
+    }
+
+    private fun setFailure(failure: NewsFailure) {
+        cancelNoContentRetry()
+        cancelActiveWork(stopSpeech = true, abandonFocus = true, cancelFetch = false)
+        _playbackState.value = _playbackState.value.copy(
+            status = when (failure) {
+                NewsFailure.NotConfigured,
+                NewsFailure.Unauthorized -> NewsPlaybackStatus.CONFIGURATION_ERROR
+                NewsFailure.RateLimited -> NewsPlaybackStatus.RATE_LIMITED
+                is NewsFailure.Network -> NewsPlaybackStatus.OFFLINE
+                NewsFailure.NoContent -> NewsPlaybackStatus.NO_CONTENT
+                else -> NewsPlaybackStatus.ERROR
+            },
+            message = failure.message,
+            pauseReason = null
+        )
+    }
+
+    private fun cancelActiveWork(
+        stopSpeech: Boolean,
+        abandonFocus: Boolean,
+        cancelFetch: Boolean
+    ) {
+        playbackJob?.cancel()
+        playbackJob = null
+        if (cancelFetch) {
+            fetchJob?.cancel()
+            fetchJob = null
+        }
+        waitingUtterance?.complete(false)
+        waitingUtterance = null
+        activeUtteranceId = null
+        if (stopSpeech) speechChannel.stop()
+        if (abandonFocus) audioFocusCoordinator.abandonNewsFocus()
     }
 
     private fun cancelNoContentRetry() {
@@ -466,20 +485,25 @@ class NewsProgram @Inject constructor(
         noContentRetryJob = null
     }
 
-    private fun pauseByAudioFocusLossIfNeeded() {
-        val status = _playbackState.value.status
-        if (status != NewsPlaybackStatus.RUNNING && status != NewsPlaybackStatus.FETCHING) {
-            return
-        }
-        stopPlayback(clearState = false, keepMessage = true)
-        _playbackState.value = _playbackState.value.copy(
-            status = NewsPlaybackStatus.PAUSED,
-            message = "音频焦点被占用，已暂停新闻播报"
-        )
+    private fun clearQueue() {
+        currentBriefs = emptyList()
+        currentBriefIndex = 0
+        currentSentences = emptyList()
+        currentSentenceIndex = 0
     }
 
-    private fun buildIntroSentence(article: NewsArticle): String {
-        val published = NewsTextUtils.formatPublishedTime(article.publishedAtEpochMs)
-        return "来源：${article.sourceName}，发布时间：$published。标题：${article.title}。"
+    private fun buildIntroSentence(brief: NewsBrief): String {
+        val published = NewsTextUtils.formatPublishedTime(brief.publishedAtEpochMs)
+        return "来源：${brief.sourceName}，发布时间：$published。标题：${brief.title}。"
+    }
+
+    private fun briefKeys(brief: NewsBrief): Set<String> = buildSet {
+        brief.id.trim().takeIf { it.isNotBlank() }?.let { add("id:$it") }
+        brief.articleUrl.substringBefore('#')
+            .substringBefore('?')
+            .trimEnd('/')
+            .lowercase(Locale.ROOT)
+            .takeIf { it.isNotBlank() }
+            ?.let { add("url:$it") }
     }
 }

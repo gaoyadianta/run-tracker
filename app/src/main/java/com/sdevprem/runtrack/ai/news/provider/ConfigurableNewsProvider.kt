@@ -4,278 +4,253 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.sdevprem.runtrack.ai.news.NewsTextUtils
 import com.sdevprem.runtrack.ai.news.config.NewsProgramConfig
+import com.sdevprem.runtrack.ai.news.config.NewsProviderMode
+import com.sdevprem.runtrack.ai.news.generator.NewsBriefGenerator
 import com.sdevprem.runtrack.ai.news.model.NewsArticle
-import com.sdevprem.runtrack.di.IoDispatcher
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.withContext
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.OkHttpClient
+import com.sdevprem.runtrack.ai.news.model.NewsBrief
+import com.sdevprem.runtrack.ai.news.model.NewsBriefBatch
+import com.sdevprem.runtrack.ai.news.model.NewsBriefRequest
+import com.sdevprem.runtrack.ai.news.model.NewsFailure
+import kotlinx.coroutines.delay
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
-import timber.log.Timber
-import java.net.URLEncoder
+import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.abs
 
 @Singleton
 class ConfigurableNewsProvider @Inject constructor(
     private val config: NewsProgramConfig,
-    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
+    private val briefGenerator: NewsBriefGenerator,
+    private val httpClient: NewsHttpClient,
+    private val productionProvider: ProductionNewsProvider
 ) : NewsProvider {
-    companion object {
-        private const val MOCK_FEED_PREFIX = "mock://"
-    }
-
     private val mapper = ObjectMapper()
-    private val client by lazy {
-        OkHttpClient.Builder().build()
-    }
 
-    override suspend fun fetchFeed(keyword: String, language: String): Result<List<NewsArticle>> = withContext(ioDispatcher) {
-        runCatching {
-            if (isMockFeedEnabled()) {
-                return@runCatching buildMockArticles(keyword = keyword, language = language)
-            }
-            if (!config.isProviderConfigured()) {
-                error("新闻 provider 未配置")
-            }
-
-            val url = buildFeedUrl(keyword = keyword, language = language)
-            val responseText = executeRequest(url)
-            val root = mapper.readTree(responseText)
-            val itemsNode = findNodeByPath(root, config.feedItemsPath)
-                ?: error("无法在响应中找到 feed 列表: ${config.feedItemsPath}")
-
-            val articles = itemsNode.asSequence()
-                .mapNotNull { item -> mapArticle(item) }
-                .toList()
-
-            articles
-        }.onFailure { error ->
-            Timber.w(error, "fetchFeed failed")
+    override suspend fun fetchBriefs(request: NewsBriefRequest): Result<NewsBriefBatch> = runCatching {
+        when (config.providerMode) {
+            NewsProviderMode.MOCK -> buildMockBatch(request)
+            NewsProviderMode.NEWS_API -> fetchNewsApiBatch(request)
+            NewsProviderMode.BACKEND -> productionProvider.fetchBriefs(request).getOrThrow()
         }
     }
 
-    override suspend fun fetchContent(article: NewsArticle): Result<String> = withContext(ioDispatcher) {
-        runCatching {
-            article.fullText?.takeIf { it.isNotBlank() }?.let { fromFeed ->
-                return@runCatching NewsTextUtils.cleanText(fromFeed)
-            }
+    private suspend fun fetchNewsApiBatch(request: NewsBriefRequest): NewsBriefBatch {
+        if (!config.isProviderConfigured()) throw NewsFailure.NotConfigured
 
-            if (isMockFeedEnabled()) {
-                return@runCatching NewsTextUtils.cleanText(
-                    buildMockArticles(keyword = config.defaultKeyword, language = config.defaultLanguage)
-                        .firstOrNull { it.id == article.id || it.url == article.url }
-                        ?.fullText
-                        .orEmpty()
-                )
-            }
-
-            if (config.contentUrlTemplate.isBlank()) {
-                error("新闻正文接口未配置")
-            }
-
-            val url = buildContentUrl(article)
-            val responseText = executeRequest(url)
-            val contentRaw = extractContent(responseText)
-            val cleaned = NewsTextUtils.cleanText(contentRaw)
-            if (cleaned.isBlank()) {
-                error("正文为空")
-            }
-            cleaned
-        }.onFailure { error ->
-            Timber.w(error, "fetchContent failed: article=${article.url}")
+        val now = System.currentTimeMillis()
+        val oldestAllowed = now - request.normalizedMaxAgeHours * 60L * 60L * 1_000L
+        val response = executeWithRetry(
+            NewsApiRequestFactory.create(
+                request = request,
+                apiKey = config.newsApiKey,
+                oldestAllowedEpochMs = oldestAllowed
+            )
+        )
+        when (response.code) {
+            200 -> Unit
+            401, 403 -> throw NewsFailure.Unauthorized
+            429 -> throw NewsFailure.RateLimited
+            else -> throw NewsFailure.Provider("新闻接口请求失败：${response.code}")
         }
+
+        val root = mapper.readTree(response.body)
+        val articles = root.path("articles")
+            .takeIf { it.isArray }
+            ?.asSequence()
+            ?: emptySequence()
+        val mappedArticles = articles
+            .mapNotNull(::mapArticle)
+            .filter { it.publishedAtEpochMs == null || it.publishedAtEpochMs >= oldestAllowed }
+            .distinctBy { canonicalArticleKey(it) }
+            .take(request.normalizedLimit)
+            .toList()
+        if (mappedArticles.isEmpty()) throw NewsFailure.NoContent
+
+        val briefs = mappedArticles.map { article ->
+            NewsBrief(
+                id = article.id,
+                title = article.title,
+                sourceName = article.sourceName,
+                publishedAtEpochMs = article.publishedAtEpochMs,
+                articleUrl = article.url,
+                spokenText = briefGenerator.generate(article, request.language)
+            )
+        }.filter { it.spokenText.isNotBlank() }
+        if (briefs.isEmpty()) throw NewsFailure.NoContent
+        return NewsBriefBatch(briefs = briefs, fetchedAtEpochMs = now)
     }
 
-    private fun executeRequest(url: String): String {
-        val requestBuilder = Request.Builder()
-            .url(url)
-            .header("Accept", "application/json,text/plain,*/*")
-
-        if (config.apiKeyHeaderName.isNotBlank() && config.apiKeyValue.isNotBlank()) {
-            requestBuilder.header(config.apiKeyHeaderName, config.apiKeyValue)
-        }
-
-        val request = requestBuilder.get().build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                error("新闻接口请求失败: ${response.code}")
+    private suspend fun executeWithRetry(request: Request): NewsHttpResponse {
+        val delays = longArrayOf(1_000L, 3_000L)
+        var lastNetworkError: IOException? = null
+        repeat(3) { attempt ->
+            val response = try {
+                httpClient.execute(request)
+            } catch (error: IOException) {
+                lastNetworkError = error
+                if (attempt < delays.size) {
+                    delay(delays[attempt])
+                    return@repeat
+                }
+                throw NewsFailure.Network(error)
             }
-            return response.body?.string().orEmpty()
+            val retryable = response.code == 408 || response.code == 429 || response.code >= 500
+            if (retryable && attempt < delays.size) {
+                delay(delays[attempt])
+            } else {
+                return response
+            }
         }
-    }
-
-    private fun extractContent(responseText: String): String {
-        val trimmed = responseText.trim()
-        if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) {
-            return trimmed
-        }
-
-        val root = mapper.readTree(trimmed)
-        val node = findNodeByPath(root, config.contentTextPath)
-            ?: error("正文路径未命中: ${config.contentTextPath}")
-        return node.asText()
+        throw NewsFailure.Network(lastNetworkError)
     }
 
     private fun mapArticle(node: JsonNode): NewsArticle? {
-        val url = readText(node, config.feedUrlPath).orEmpty()
-        val title = readText(node, config.feedTitlePath).orEmpty()
-        if (url.isBlank() || title.isBlank()) {
-            return null
-        }
-
-        val articleId = readText(node, config.feedIdPath)
-            ?.ifBlank { null }
-            ?: url.hashCode().toString()
-
+        val url = node.readText("url")
+        val title = node.readText("title")
+        if (url.isBlank() || title.isBlank()) return null
         return NewsArticle(
-            id = articleId,
+            id = url,
             title = title,
-            sourceName = readText(node, config.feedSourcePath).orEmpty().ifBlank { "未知来源" },
-            publishedAtEpochMs = NewsTextUtils.parseEpochMs(readText(node, config.feedPublishedAtPath)),
+            sourceName = node.path("source").readText("name").ifBlank { "未知来源" },
+            publishedAtEpochMs = NewsTextUtils.parseEpochMs(node.readText("publishedAt")),
             url = url,
-            language = readText(node, config.feedLanguagePath),
-            description = readText(node, config.feedDescriptionPath),
-            fullText = readText(node, config.feedContentPath)
+            language = null,
+            description = NewsTextUtils.cleanSnippet(node.readText("description"))
+                .take(200)
+                .ifBlank { null },
+            contentSnippet = NewsTextUtils.cleanSnippet(node.readText("content"))
+                .take(200)
+                .ifBlank { null }
         )
     }
 
-    private fun buildFeedUrl(keyword: String, language: String): String {
-        var url = config.feedUrlTemplate
-        url = url.replace("{keyword}", keyword.urlEncoded())
-        url = url.replace("{language}", language)
-        url = url.replace("{page}", "1")
-        return appendApiKeyQuery(url)
-    }
-
-    private fun buildContentUrl(article: NewsArticle): String {
-        var url = config.contentUrlTemplate
-        url = url.replace("{id}", article.id.urlEncoded())
-        url = url.replace("{url}", article.url.urlEncoded())
-        return appendApiKeyQuery(url)
-    }
-
-    private fun appendApiKeyQuery(rawUrl: String): String {
-        if (config.apiKeyQueryName.isBlank() || config.apiKeyValue.isBlank()) {
-            return rawUrl
-        }
-        val parsed = rawUrl.toHttpUrlOrNull() ?: return rawUrl
-        return parsed.newBuilder()
-            .addQueryParameter(config.apiKeyQueryName, config.apiKeyValue)
-            .build()
-            .toString()
-    }
-
-    private fun readText(node: JsonNode, path: String): String? {
-        if (path.isBlank()) return null
-        val target = findNodeByPath(node, path) ?: return null
-        if (target.isNull || target.isMissingNode) return null
-        return target.asText()
-    }
-
-    private fun findNodeByPath(root: JsonNode, path: String): JsonNode? {
-        if (path.isBlank()) return null
-        var current: JsonNode = root
-        path.split(".")
-            .filter { it.isNotBlank() }
-            .forEach { rawSegment ->
-                val segment = rawSegment.trim()
-                if (segment.endsWith("]")) {
-                    val startIndex = segment.indexOf('[')
-                    if (startIndex <= 0 || !segment.endsWith("]")) {
-                        return null
-                    }
-                    val field = segment.substring(0, startIndex)
-                    val indexRaw = segment.substring(startIndex + 1, segment.length - 1)
-                    val arrayIndex = indexRaw.toIntOrNull() ?: return null
-                    val arrayNode = current.get(field) ?: return null
-                    current = arrayNode.get(arrayIndex) ?: return null
-                } else {
-                    current = current.get(segment) ?: return null
-                }
-            }
-        return current
-    }
-
-    private fun isMockFeedEnabled(): Boolean =
-        config.feedUrlTemplate.trim().startsWith(MOCK_FEED_PREFIX, ignoreCase = true)
-
-    private fun buildMockArticles(keyword: String, language: String): List<NewsArticle> {
+    private fun buildMockBatch(request: NewsBriefRequest): NewsBriefBatch {
+        if (!config.isProviderConfigured()) throw NewsFailure.NotConfigured
         val now = System.currentTimeMillis()
-        val all = listOf(
-            NewsArticle(
+        val chinese = listOf(
+            NewsBrief(
                 id = "mock-cn-interval",
-                title = "配速训练：3 分钟快跑 + 2 分钟慢跑更容易坚持",
+                title = "三分钟快跑配合两分钟慢跑更容易坚持",
                 sourceName = "RunMate Mock",
                 publishedAtEpochMs = now - 15 * 60_000L,
-                url = "https://example.com/runmate/mock/interval",
-                language = "zh",
-                description = "间歇训练的入门实践",
-                fullText = "来源：RunMate Mock。今天的训练建议是采用三分钟快跑配合两分钟慢跑的间歇方案。全程先热身十分钟，再进入四到六组间歇。每组快跑阶段保持可以完整说短句但有明显吃力的强度。慢跑恢复阶段不要停下，让心率逐步回落。训练结束后进行五分钟放松跑和腿后侧拉伸。这样的结构能在控制疲劳的同时提升心肺能力，适合工作日的短时训练。"
+                articleUrl = "https://example.com/runmate/mock/interval",
+                spokenText = "间歇训练可以先热身十分钟，再完成四到六组三分钟快跑和两分钟慢跑。快跑阶段保持能够说短句但明显吃力，恢复阶段不要停下，最后用五分钟慢跑和拉伸结束训练。"
             ),
-            NewsArticle(
+            NewsBrief(
                 id = "mock-cn-hydration",
-                title = "长距离跑补水策略：20 分钟小口补给更稳",
+                title = "长距离跑每二十分钟小口补水更稳定",
                 sourceName = "RunMate Mock",
                 publishedAtEpochMs = now - 45 * 60_000L,
-                url = "https://example.com/runmate/mock/hydration",
-                language = "zh",
-                description = "边跑边补给节奏建议",
-                fullText = "来源：RunMate Mock。长距离训练中建议每二十分钟进行一次小口补水。天气炎热或湿度较高时可以适当提前补给。补水量以不出现胃部晃动感为准，同时观察口干和出汗情况。若训练超过一小时，可考虑补充少量电解质，避免后段抽筋风险。跑后半小时内完成碳水和蛋白的恢复餐，有助于降低第二天疲劳。"
+                articleUrl = "https://example.com/runmate/mock/hydration",
+                spokenText = "长距离训练建议每二十分钟小口补水，炎热或潮湿天气可以适当前移补给时间。训练超过一小时可补充少量电解质，跑后半小时内完成碳水和蛋白质恢复餐。"
             ),
-            NewsArticle(
+            NewsBrief(
                 id = "mock-cn-recovery",
-                title = "恢复跑要慢：把强度降到对话配速",
+                title = "恢复跑应保持可以连续对话的强度",
                 sourceName = "RunMate Mock",
                 publishedAtEpochMs = now - 90 * 60_000L,
-                url = "https://example.com/runmate/mock/recovery",
-                language = "zh",
-                description = "恢复跑常见误区",
-                fullText = "来源：RunMate Mock。恢复跑的目标是促进循环而不是再次刺激强度。建议将速度控制在可以连续对话的区间，呼吸平稳，步幅自然。若前一日做了高强度训练，恢复跑时长控制在二十到四十分钟更合适。训练结束后优先睡眠，再配合轻量拉伸和泡沫轴放松。长期坚持恢复跑可以显著降低伤病概率。"
+                articleUrl = "https://example.com/runmate/mock/recovery",
+                spokenText = "恢复跑的目标是促进循环，而不是再次刺激强度。把速度控制在能够连续对话的区间，高强度训练后的恢复跑以二十到四十分钟为宜，并优先保证睡眠。"
             ),
-            NewsArticle(
-                id = "mock-en-tempo",
-                title = "Tempo sessions improve your lactate tolerance",
+            NewsBrief(
+                id = "mock-cn-cadence",
+                title = "步频调整应循序渐进避免刻意迈小步",
                 sourceName = "RunMate Mock",
-                publishedAtEpochMs = now - 30 * 60_000L,
-                url = "https://example.com/runmate/mock/tempo",
-                language = "en",
-                description = "A practical tempo workout",
-                fullText = "Source RunMate Mock. A tempo session is a sustained effort slightly below race intensity. Begin with a ten minute warm up, then run twenty minutes at controlled discomfort. Keep your breathing strong but stable and avoid surging in the first half. Cool down for eight minutes at easy pace. Repeat this workout once a week to build threshold endurance without excessive fatigue."
+                publishedAtEpochMs = now - 120 * 60_000L,
+                articleUrl = "https://example.com/runmate/mock/cadence",
+                spokenText = "调整步频时不必追求统一数字。先观察轻松跑的自然步频，再用节拍器提高百分之三到五，并保持落脚点接近身体重心。出现小腿紧张时应恢复原节奏。"
             ),
-            NewsArticle(
-                id = "mock-en-form",
-                title = "Small cadence gains can reduce impact load",
+            NewsBrief(
+                id = "mock-cn-sleep",
+                title = "稳定睡眠比临时增加训练量更有利于恢复",
                 sourceName = "RunMate Mock",
-                publishedAtEpochMs = now - 70 * 60_000L,
-                url = "https://example.com/runmate/mock/form",
-                language = "en",
-                description = "Form cue for easy runs",
-                fullText = "Source RunMate Mock. Increasing cadence by a small margin can reduce overstriding and impact forces. Start by adding two to four steps per minute while keeping effort unchanged. Focus on quick light steps and relaxed shoulders. Test this adjustment during easy runs first, then keep only what feels natural. The goal is smoother mechanics, not forcing a new style."
+                publishedAtEpochMs = now - 150 * 60_000L,
+                articleUrl = "https://example.com/runmate/mock/sleep",
+                spokenText = "连续训练阶段应优先保持规律睡眠。若早晨静息心率明显升高并伴随疲劳，可把当天强度课改为轻松跑或休息，避免用额外训练弥补状态波动。"
             )
         )
-        val normalizedLanguage = language.trim().lowercase()
-        val languageMatched = if (normalizedLanguage.startsWith("en")) {
-            all.filter { it.language?.startsWith("en", ignoreCase = true) == true }
-        } else {
-            all.filter { it.language?.startsWith("zh", ignoreCase = true) == true }
-        }
-        val fallbackPool = languageMatched.ifEmpty { all }
-        val normalizedKeyword = keyword.trim().lowercase()
-        if (normalizedKeyword.isBlank()) return fallbackPool
-        val keywordMatched = fallbackPool.filter { article ->
-            val haystack = listOf(article.title, article.description, article.fullText)
-                .joinToString(separator = " ")
-                .lowercase()
-            haystack.contains(normalizedKeyword)
-        }
-        if (keywordMatched.isNotEmpty()) return keywordMatched
-        return fallbackPool.sortedBy {
-            val title = it.title.lowercase()
-            abs(title.length - normalizedKeyword.length)
-        }
+        val english = listOf(
+            NewsBrief(
+                id = "mock-en-tempo",
+                title = "Tempo sessions improve lactate tolerance",
+                sourceName = "RunMate Mock",
+                publishedAtEpochMs = now - 30 * 60_000L,
+                articleUrl = "https://example.com/runmate/mock/tempo",
+                spokenText = "A tempo session is a sustained effort just below race intensity. Warm up for ten minutes, run twenty minutes at controlled discomfort, and finish with an easy eight-minute cool down."
+            ),
+            NewsBrief(
+                id = "mock-en-hydration",
+                title = "Small regular drinks support long-run hydration",
+                sourceName = "RunMate Mock",
+                publishedAtEpochMs = now - 60 * 60_000L,
+                articleUrl = "https://example.com/runmate/mock/en-hydration",
+                spokenText = "Small, regular drinks are easier to tolerate than a large amount at once. Start before you feel very thirsty, adjust for heat and humidity, and include electrolytes when a run lasts longer than one hour."
+            ),
+            NewsBrief(
+                id = "mock-en-recovery",
+                title = "Recovery runs should stay conversational",
+                sourceName = "RunMate Mock",
+                publishedAtEpochMs = now - 90 * 60_000L,
+                articleUrl = "https://example.com/runmate/mock/en-recovery",
+                spokenText = "A recovery run supports circulation without adding another hard stimulus. Keep the pace easy enough for continuous conversation, limit the session to twenty to forty minutes, and prioritize sleep after demanding workouts."
+            ),
+            NewsBrief(
+                id = "mock-en-cadence",
+                title = "Cadence changes work best in small steps",
+                sourceName = "RunMate Mock",
+                publishedAtEpochMs = now - 120 * 60_000L,
+                articleUrl = "https://example.com/runmate/mock/en-cadence",
+                spokenText = "There is no universal cadence target. Measure your natural rhythm during an easy run, increase it by only three to five percent, and return to your normal rhythm if your calves become unusually tight."
+            ),
+            NewsBrief(
+                id = "mock-en-sleep",
+                title = "Consistent sleep supports training recovery",
+                sourceName = "RunMate Mock",
+                publishedAtEpochMs = now - 150 * 60_000L,
+                articleUrl = "https://example.com/runmate/mock/en-sleep",
+                spokenText = "Regular sleep can be more useful than adding another workout. When morning resting heart rate rises alongside persistent fatigue, replace the planned hard session with an easy run or a rest day."
+            )
+        )
+        val selected = if (request.language.startsWith("en", ignoreCase = true)) english else chinese
+        return NewsBriefBatch(selected.take(request.normalizedLimit), now)
     }
 
-    private fun String.urlEncoded(): String = URLEncoder.encode(this, Charsets.UTF_8.name())
+    private fun canonicalArticleKey(article: NewsArticle): String =
+        article.url.substringBefore('#').substringBefore('?').trimEnd('/').lowercase(Locale.ROOT)
+
+    private fun JsonNode.readText(field: String): String {
+        val value = path(field)
+        return if (value.isMissingNode || value.isNull) "" else value.asText().trim()
+    }
+}
+
+internal object NewsApiRequestFactory {
+    fun create(
+        request: NewsBriefRequest,
+        apiKey: String,
+        oldestAllowedEpochMs: Long
+    ): Request {
+        val from = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(Date(oldestAllowedEpochMs))
+        val url = "https://newsapi.org/v2/everything".toHttpUrl().newBuilder()
+            .addQueryParameter("q", request.keyword)
+            .addQueryParameter("language", request.language)
+            .addQueryParameter("from", from)
+            .addQueryParameter("sortBy", "publishedAt")
+            .addQueryParameter("page", "1")
+            .addQueryParameter("pageSize", (request.normalizedLimit * 2).coerceAtMost(20).toString())
+            .build()
+        return Request.Builder()
+            .url(url)
+            .header("Accept", "application/json")
+            .header("X-Api-Key", apiKey)
+            .get()
+            .build()
+    }
 }

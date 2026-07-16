@@ -987,6 +987,21 @@ private fun NewsHistoryCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = textMuted
                     )
+                    if (item.briefText.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = item.briefText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = textMuted,
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Text(
+                        text = if (item.completed) "已完整播报" else "播报未完成",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = textMuted
+                    )
                     TextButton(
                         onClick = { onOpenNewsLink(item.articleUrl) },
                         contentPadding = PaddingValues(0.dp)

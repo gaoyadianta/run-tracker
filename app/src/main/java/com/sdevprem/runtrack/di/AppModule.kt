@@ -23,6 +23,12 @@ import com.sdevprem.runtrack.domain.tracking.step.StepTrackingManager
 import com.sdevprem.runtrack.domain.tracking.timer.TimeTracker
 import com.sdevprem.runtrack.domain.tracking.session.TrackingSessionCheckpointStore
 import com.sdevprem.runtrack.data.tracking.session.DataStoreTrackingSessionCheckpointStore
+import com.sdevprem.runtrack.ai.news.generator.BailianNewsBriefGenerator
+import com.sdevprem.runtrack.ai.news.generator.NewsBriefGenerator
+import com.sdevprem.runtrack.ai.news.provider.ConfigurableNewsProvider
+import com.sdevprem.runtrack.ai.news.provider.NewsProvider
+import com.sdevprem.runtrack.ai.news.tts.LocalTtsChannel
+import com.sdevprem.runtrack.ai.news.tts.SpeechChannel
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -65,7 +71,8 @@ abstract class AppModule {
             RunTrackDB.MIGRATION_4_5,
             RunTrackDB.MIGRATION_5_6,
             RunTrackDB.MIGRATION_6_7,
-            RunTrackDB.MIGRATION_7_8
+            RunTrackDB.MIGRATION_7_8,
+            RunTrackDB.MIGRATION_8_9
         )
         .build()
 
@@ -139,5 +146,23 @@ abstract class AppModule {
     abstract fun provideTrackingSessionCheckpointStore(
         store: DataStoreTrackingSessionCheckpointStore
     ): TrackingSessionCheckpointStore
+
+    @Binds
+    @Singleton
+    abstract fun provideNewsBriefGenerator(
+        generator: BailianNewsBriefGenerator
+    ): NewsBriefGenerator
+
+    @Binds
+    @Singleton
+    abstract fun provideNewsProvider(
+        provider: ConfigurableNewsProvider
+    ): NewsProvider
+
+    @Binds
+    @Singleton
+    abstract fun provideSpeechChannel(
+        channel: LocalTtsChannel
+    ): SpeechChannel
 
 }

@@ -4,19 +4,21 @@ import android.content.Context
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import com.sdevprem.runtrack.ai.news.model.NewsFailure
 import com.sdevprem.runtrack.di.MainDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import java.util.Locale
 import javax.inject.Inject
@@ -28,37 +30,38 @@ class LocalTtsChannel @Inject constructor(
     @MainDispatcher private val mainDispatcher: CoroutineDispatcher
 ) : SpeechChannel {
     private val scope = CoroutineScope(SupervisorJob() + mainDispatcher)
+    private val initMutex = Mutex()
     private val isReady = MutableStateFlow(false)
-    private val doneFlow = MutableSharedFlow<String>(extraBufferCapacity = 16)
-    private val errorFlow = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    private val eventFlow = MutableSharedFlow<SpeechEvent>(extraBufferCapacity = 32)
     private var textToSpeech: TextToSpeech? = null
 
-    override val utteranceDone: Flow<String> = doneFlow
-    override val utteranceError: Flow<String> = errorFlow
+    override val events: Flow<SpeechEvent> = eventFlow
 
     init {
-        scope.launch {
-            initializeIfNeeded()
-        }
+        scope.launch { initializeIfNeeded() }
     }
 
     override suspend fun awaitReady(): Boolean {
         initializeIfNeeded()
-        if (isReady.value) return true
-        return withTimeoutOrNull(3_500L) {
-            isReady.filter { it }.first()
-            true
-        } ?: false
+        return isReady.value
     }
 
-    override fun setLanguage(language: String) {
+    override suspend fun setLanguage(language: String): Result<Unit> {
+        if (!awaitReady()) return Result.failure(NewsFailure.TtsUnavailable)
         val locale = if (language.startsWith("en", ignoreCase = true)) {
             Locale.US
         } else {
             Locale.SIMPLIFIED_CHINESE
         }
-        scope.launch {
-            textToSpeech?.language = locale
+        return withContext(mainDispatcher) {
+            val result = textToSpeech?.setLanguage(locale) ?: TextToSpeech.ERROR
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                Result.failure(NewsFailure.LanguageUnsupported)
+            } else if (result == TextToSpeech.ERROR) {
+                Result.failure(NewsFailure.TtsUnavailable)
+            } else {
+                Result.success(Unit)
+            }
         }
     }
 
@@ -69,9 +72,7 @@ class LocalTtsChannel @Inject constructor(
         }
         val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
         if (result != TextToSpeech.SUCCESS) {
-            scope.launch {
-                errorFlow.emit(utteranceId)
-            }
+            eventFlow.tryEmit(SpeechEvent.Error(utteranceId))
             return false
         }
         return true
@@ -79,82 +80,60 @@ class LocalTtsChannel @Inject constructor(
 
     override fun stop() {
         scope.launch {
-            try {
-                textToSpeech?.stop()
-            } catch (e: Exception) {
-                Timber.w(e, "LocalTts stop failed")
-            }
+            runCatching { textToSpeech?.stop() }
+                .onFailure { Timber.w(it, "LocalTts stop failed") }
         }
     }
 
     override fun shutdown() {
         scope.launch {
-            try {
-                textToSpeech?.stop()
-            } catch (_: Exception) {
+            initMutex.withLock {
+                runCatching { textToSpeech?.stop() }
+                runCatching { textToSpeech?.shutdown() }
+                textToSpeech = null
+                isReady.value = false
             }
-            try {
-                textToSpeech?.shutdown()
-            } catch (_: Exception) {
-            }
-            textToSpeech = null
-            isReady.value = false
         }
     }
 
     private suspend fun initializeIfNeeded() {
-        if (textToSpeech != null) return
-        withContext(mainDispatcher) {
-            if (textToSpeech != null) return@withContext
-            val initState = MutableStateFlow<Int?>(null)
-            lateinit var instance: TextToSpeech
-            instance = TextToSpeech(context) { status ->
-                initState.value = status
-            }
-            instance.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                override fun onStart(utteranceId: String?) = Unit
+        if (isReady.value) return
+        initMutex.withLock {
+            if (isReady.value) return
+            withContext(mainDispatcher) {
+                if (isReady.value) return@withContext
+                val initResult = CompletableDeferred<Int>()
+                val instance = TextToSpeech(context) { status ->
+                    if (!initResult.isCompleted) initResult.complete(status)
+                }
+                instance.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                    override fun onStart(utteranceId: String?) = Unit
 
-                override fun onDone(utteranceId: String?) {
-                    val safeId = utteranceId ?: return
-                    scope.launch {
-                        doneFlow.emit(safeId)
+                    override fun onDone(utteranceId: String?) {
+                        utteranceId?.let { eventFlow.tryEmit(SpeechEvent.Completed(it)) }
                     }
-                }
 
-                @Deprecated("Deprecated in Java")
-                override fun onError(utteranceId: String?) {
-                    val safeId = utteranceId ?: return
-                    scope.launch {
-                        errorFlow.emit(safeId)
+                    @Deprecated("Deprecated in Java")
+                    override fun onError(utteranceId: String?) {
+                        utteranceId?.let { eventFlow.tryEmit(SpeechEvent.Error(it)) }
                     }
-                }
 
-                override fun onError(utteranceId: String?, errorCode: Int) {
-                    val safeId = utteranceId ?: return
-                    Timber.w("LocalTts utterance error: id=$safeId, code=$errorCode")
-                    scope.launch {
-                        errorFlow.emit(safeId)
+                    override fun onError(utteranceId: String?, errorCode: Int) {
+                        utteranceId?.let { eventFlow.tryEmit(SpeechEvent.Error(it, errorCode)) }
                     }
-                }
-            })
+                })
 
-            val status = withTimeoutOrNull(2_500L) {
-                initState.filter { it != null }.first()
-            } ?: TextToSpeech.ERROR
-
-            if (status == TextToSpeech.SUCCESS) {
-                instance.language = Locale.SIMPLIFIED_CHINESE
-                instance.setSpeechRate(1.0f)
-                textToSpeech = instance
-                isReady.value = true
-            } else {
-                Timber.w("LocalTts init failed: status=$status")
-                try {
-                    instance.shutdown()
-                } catch (_: Exception) {
+                val status = withTimeoutOrNull(2_500L) { initResult.await() } ?: TextToSpeech.ERROR
+                if (status == TextToSpeech.SUCCESS) {
+                    instance.setSpeechRate(1.0f)
+                    textToSpeech = instance
+                    isReady.value = true
+                } else {
+                    Timber.w("LocalTts init failed: status=$status")
+                    runCatching { instance.shutdown() }
+                    textToSpeech = null
+                    isReady.value = false
                 }
-                textToSpeech = null
-                isReady.value = false
             }
         }
     }

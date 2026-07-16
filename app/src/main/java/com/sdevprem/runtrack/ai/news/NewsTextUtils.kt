@@ -13,6 +13,7 @@ object NewsTextUtils {
     private val multiWhitespaceRegex = Regex("[\\t\\x0B\\f\\r ]+")
     private val multiNewlineRegex = Regex("\\n{3,}")
     private val sentenceSplitRegex = Regex("(?<=[。！？；!?;])|\\n+")
+    private val newsApiTruncationRegex = Regex("\\s*\\[?\\+\\d+\\s+chars?]?\\s*$", RegexOption.IGNORE_CASE)
     private val dateFormats = listOf(
         "yyyy-MM-dd'T'HH:mm:ss.SSSX",
         "yyyy-MM-dd'T'HH:mm:ssX",
@@ -38,6 +39,10 @@ object NewsTextUtils {
             .replace(multiNewlineRegex, "\n\n")
             .trim()
     }
+
+    fun cleanSnippet(raw: String?): String = cleanText(raw.orEmpty())
+        .replace(newsApiTruncationRegex, "")
+        .trim()
 
     fun splitToSentences(content: String): List<String> {
         return content

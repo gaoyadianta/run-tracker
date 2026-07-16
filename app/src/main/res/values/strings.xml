@@ -48,31 +48,11 @@
     <string name="ai_volcano_ark_model">YOUR_VOLCANO_ARK_MODEL</string>
 
     <!-- 新闻播报节目配置（MVP） -->
-    <string name="news_program_enabled">true</string>
+    <string name="news_program_enabled">false</string>
     <string name="news_program_allow_voice_start">true</string>
-    <!-- 仅当第三方内容具备“全文分发 + 终端播报”授权时才设置为 true -->
-    <string name="news_program_fulltext_authorized">false</string>
-    <string name="news_program_auto_start_on_app_open">true</string>
+    <string name="news_program_auto_start_on_app_open">false</string>
     <string name="news_program_default_keyword">科技</string>
     <string name="news_program_default_language">zh</string>
     <string name="news_program_no_content_retry_minutes">5</string>
 
-    <!-- Provider 配置：默认给出 NewsAPI 的可联调模板（需替换你自己的 key） -->
-    <!-- 示例请求：/v2/everything?q={keyword}&language={language}&page={page} -->
-    <string name="news_program_feed_url_template">https://newsapi.org/v2/everything?q={keyword}&amp;language={language}&amp;page={page}&amp;sortBy=publishedAt&amp;pageSize=20</string>
-    <!-- 若 feed 已包含可播报正文（如 content 字段），可留空 content endpoint -->
-    <string name="news_program_content_url_template"></string>
-    <string name="news_program_api_key_header_name"></string>
-    <string name="news_program_api_key_query_name">apiKey</string>
-    <string name="news_program_feed_items_path">articles</string>
-    <string name="news_program_feed_id_path">url</string>
-    <string name="news_program_feed_title_path">title</string>
-    <string name="news_program_feed_source_path">source.name</string>
-    <string name="news_program_feed_published_at_path">publishedAt</string>
-    <string name="news_program_feed_url_path">url</string>
-    <string name="news_program_feed_language_path">language</string>
-    <string name="news_program_feed_description_path">description</string>
-    <!-- NewsAPI 的 content 为联调可用正文片段；生产需替换为已授权全文 provider -->
-    <string name="news_program_feed_content_path">content</string>
-    <string name="news_program_content_text_path">content</string>
 </resources>

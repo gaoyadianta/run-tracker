@@ -55,7 +55,7 @@ keytool -list -v -keystore /path/to/your/release.keystore -alias your_alias
 
 ```properties
 # Google Maps API Key
-MAPS_API_KEY=AIzaSyBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY
 
 # 高德地图 API Key  
 AMAP_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

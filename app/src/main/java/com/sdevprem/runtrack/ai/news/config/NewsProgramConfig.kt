@@ -1,24 +1,30 @@
 package com.sdevprem.runtrack.ai.news.config
 
+import android.content.Context
+import com.sdevprem.runtrack.BuildConfig
+import com.sdevprem.runtrack.R
 import com.sdevprem.runtrack.data.repository.NewsProgramSettingsRepository
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
 class NewsProgramConfig @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val settingsRepository: NewsProgramSettingsRepository
 ) {
     private val settings: NewsProgramSettings
         get() = settingsRepository.settings.value
+
+    val settingsUpdates: StateFlow<NewsProgramSettings>
+        get() = settingsRepository.settings
 
     val enabled: Boolean
         get() = settings.enabled
 
     val allowVoiceStart: Boolean
         get() = settings.allowVoiceStart
-
-    val fullTextAuthorized: Boolean
-        get() = settings.fullTextAuthorized
 
     val autoStartOnAppOpen: Boolean
         get() = settings.autoStartOnAppOpen
@@ -32,52 +38,18 @@ class NewsProgramConfig @Inject constructor(
     val noContentRetryIntervalMs: Long
         get() = settings.noContentRetryMinutes.toLong().coerceAtLeast(1L) * 60_000L
 
-    val feedUrlTemplate: String
-        get() = settings.feedUrlTemplate
+    val providerMode: NewsProviderMode
+        get() = if (BuildConfig.DEBUG) settings.providerMode else NewsProviderMode.BACKEND
 
-    val contentUrlTemplate: String
-        get() = settings.contentUrlTemplate
+    val newsApiKey: String
+        get() = context.getString(R.string.news_program_api_key_value).trim()
 
-    val apiKeyHeaderName: String
-        get() = settings.apiKeyHeaderName
+    val backendBaseUrl: String
+        get() = context.getString(R.string.news_backend_base_url).trim().trimEnd('/')
 
-    val apiKeyQueryName: String
-        get() = settings.apiKeyQueryName
-
-    val apiKeyValue: String
-        get() = settings.apiKeyValue
-
-    val feedItemsPath: String
-        get() = settings.feedItemsPath.ifBlank { "articles" }
-
-    val feedIdPath: String
-        get() = settings.feedIdPath.ifBlank { "url" }
-
-    val feedTitlePath: String
-        get() = settings.feedTitlePath.ifBlank { "title" }
-
-    val feedSourcePath: String
-        get() = settings.feedSourcePath.ifBlank { "source.name" }
-
-    val feedPublishedAtPath: String
-        get() = settings.feedPublishedAtPath.ifBlank { "publishedAt" }
-
-    val feedUrlPath: String
-        get() = settings.feedUrlPath.ifBlank { "url" }
-
-    val feedLanguagePath: String
-        get() = settings.feedLanguagePath
-
-    val feedDescriptionPath: String
-        get() = settings.feedDescriptionPath
-
-    val feedContentPath: String
-        get() = settings.feedContentPath
-
-    val contentTextPath: String
-        get() = settings.contentTextPath.ifBlank { "content" }
-
-    fun isProviderConfigured(): Boolean {
-        return feedUrlTemplate.isNotBlank()
+    fun isProviderConfigured(): Boolean = when (providerMode) {
+        NewsProviderMode.MOCK -> BuildConfig.DEBUG
+        NewsProviderMode.NEWS_API -> BuildConfig.DEBUG && newsApiKey.isNotBlank()
+        NewsProviderMode.BACKEND -> backendBaseUrl.startsWith("https://")
     }
 }

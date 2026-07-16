@@ -17,7 +17,7 @@ import com.sdevprem.runtrack.data.model.RunNewsHistoryEntity
 
 @Database(
     entities = [Run::class, RunAiArtifact::class, RunMetricsEntity::class, RunNewsHistoryEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 
@@ -116,6 +116,17 @@ abstract class RunTrackDB : RoomDatabase() {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(
                     "ALTER TABLE running_table ADD COLUMN imagePath TEXT"
+                )
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE run_news_history ADD COLUMN briefText TEXT NOT NULL DEFAULT ''"
+                )
+                database.execSQL(
+                    "ALTER TABLE run_news_history ADD COLUMN completed INTEGER NOT NULL DEFAULT 0"
                 )
             }
         }

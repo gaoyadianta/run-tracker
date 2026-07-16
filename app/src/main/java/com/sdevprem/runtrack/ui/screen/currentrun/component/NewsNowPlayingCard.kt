@@ -27,25 +27,31 @@ import com.sdevprem.runtrack.ai.news.model.NewsPlaybackStatus
 fun NewsNowPlayingCard(
     state: NewsPlaybackState,
     onPrimaryActionClick: () -> Unit,
+    onOpenSettingsClick: () -> Unit,
     onSkipClick: () -> Unit,
     onStopClick: () -> Unit
 ) {
     val statusLabel = state.status.toStatusLabel()
     val statusColor = state.status.toStatusColor()
     val progressLabel = if (state.totalSentences > 0) {
-        "第${state.currentSentenceIndex.coerceAtMost(state.totalSentences)}/${state.totalSentences}句"
+        val current = (state.currentSentenceIndex + 1).coerceAtMost(state.totalSentences)
+        "第$current/${state.totalSentences}句"
     } else {
         "等待播报"
     }
     val primaryActionText = when (state.status) {
         NewsPlaybackStatus.RUNNING,
+        NewsPlaybackStatus.PREPARING,
         NewsPlaybackStatus.FETCHING -> "暂停"
         NewsPlaybackStatus.PAUSED,
         NewsPlaybackStatus.INTERRUPTED -> "继续"
         NewsPlaybackStatus.IDLE,
+        NewsPlaybackStatus.STOPPED -> "开始"
+        NewsPlaybackStatus.CONFIGURATION_ERROR -> "检查配置"
         NewsPlaybackStatus.NO_CONTENT,
-        NewsPlaybackStatus.STOPPED,
-        NewsPlaybackStatus.ERROR -> "开始"
+        NewsPlaybackStatus.OFFLINE,
+        NewsPlaybackStatus.RATE_LIMITED,
+        NewsPlaybackStatus.ERROR -> "重试"
     }
 
     Card(
@@ -105,7 +111,11 @@ fun NewsNowPlayingCard(
             ) {
                 Button(
                     modifier = Modifier.weight(1f),
-                    onClick = onPrimaryActionClick
+                    onClick = if (state.status == NewsPlaybackStatus.CONFIGURATION_ERROR) {
+                        onOpenSettingsClick
+                    } else {
+                        onPrimaryActionClick
+                    }
                 ) {
                     Text(primaryActionText)
                 }
@@ -138,21 +148,29 @@ fun NewsNowPlayingCard(
 
 private fun NewsPlaybackStatus.toStatusLabel(): String = when (this) {
     NewsPlaybackStatus.IDLE -> "未开始"
-    NewsPlaybackStatus.FETCHING -> "获取内容中"
+    NewsPlaybackStatus.PREPARING -> "准备简报中"
+    NewsPlaybackStatus.FETCHING -> "获取并生成简报中"
     NewsPlaybackStatus.RUNNING -> "播报中"
     NewsPlaybackStatus.PAUSED -> "已暂停"
     NewsPlaybackStatus.INTERRUPTED -> "陪跑插播中"
     NewsPlaybackStatus.NO_CONTENT -> "无可播报内容"
     NewsPlaybackStatus.STOPPED -> "已停止"
+    NewsPlaybackStatus.CONFIGURATION_ERROR -> "需要配置"
+    NewsPlaybackStatus.OFFLINE -> "网络不可用"
+    NewsPlaybackStatus.RATE_LIMITED -> "请求受限"
     NewsPlaybackStatus.ERROR -> "错误"
 }
 
 private fun NewsPlaybackStatus.toStatusColor(): Color = when (this) {
     NewsPlaybackStatus.RUNNING -> Color(0xFF2E7D32)
     NewsPlaybackStatus.FETCHING -> Color(0xFF1976D2)
+    NewsPlaybackStatus.PREPARING -> Color(0xFF1976D2)
     NewsPlaybackStatus.PAUSED -> Color(0xFFE65100)
     NewsPlaybackStatus.INTERRUPTED -> Color(0xFF6A1B9A)
-    NewsPlaybackStatus.ERROR -> Color(0xFFC62828)
+    NewsPlaybackStatus.ERROR,
+    NewsPlaybackStatus.CONFIGURATION_ERROR,
+    NewsPlaybackStatus.OFFLINE,
+    NewsPlaybackStatus.RATE_LIMITED -> Color(0xFFC62828)
     else -> Color(0xFF546E7A)
 }
 

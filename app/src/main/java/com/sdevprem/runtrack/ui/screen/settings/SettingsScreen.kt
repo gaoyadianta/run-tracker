@@ -199,11 +199,6 @@ fun SettingsScreen(
                         checked = newsSettings.autoStartOnAppOpen,
                         onCheckedChange = viewModel::setAutoStartOnAppOpen
                     )
-                    NewsSettingSwitchItem(
-                        title = "已授权全文播报",
-                        checked = newsSettings.fullTextAuthorized,
-                        onCheckedChange = viewModel::setFulltextAuthorized
-                    )
                     OutlinedTextField(
                         value = newsSettings.defaultKeyword,
                         onValueChange = viewModel::setDefaultKeyword,
@@ -236,72 +231,40 @@ fun SettingsScreen(
                 }
             }
 
-            Text(
-                text = "新闻 Provider 配置",
-                style = TextStyle(
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
+            if (BuildConfig.DEBUG) {
+                Text(
+                    text = "新闻调试数据源",
+                    style = TextStyle(
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                 )
-            )
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { viewModel.applyNewsApiPreset() }
-                        ) {
-                            Text("应用 NewsAPI 预设")
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("当前数据源：${newsSettings.providerMode.name}")
+                        Text(
+                            text = "NewsAPI 与百炼密钥仅从 local.properties 注入 Debug 包，不会写入设置。",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = viewModel::applyNewsApiPreset) {
+                                Text("使用 NewsAPI")
+                            }
+                            Button(onClick = viewModel::applyLocalMockPreset) {
+                                Text("使用内置测试")
+                            }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = { viewModel.applyLocalMockPreset() }
-                        ) {
-                            Text("应用内置测试文章")
-                        }
-                    }
-                    OutlinedTextField(
-                        value = newsSettings.feedUrlTemplate,
-                        onValueChange = viewModel::setFeedUrlTemplate,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Feed Endpoint") }
-                    )
-                    OutlinedTextField(
-                        value = newsSettings.contentUrlTemplate,
-                        onValueChange = viewModel::setContentUrlTemplate,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Content Endpoint（可空）") }
-                    )
-                    OutlinedTextField(
-                        value = newsSettings.apiKeyQueryName,
-                        onValueChange = viewModel::setApiKeyQueryName,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("API Key Query 名（如 apiKey）") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = newsSettings.apiKeyHeaderName,
-                        onValueChange = viewModel::setApiKeyHeaderName,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("API Key Header 名（可空）") },
-                        singleLine = true
-                    )
-                    OutlinedTextField(
-                        value = newsSettings.apiKeyValue,
-                        onValueChange = viewModel::setApiKeyValue,
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("API Key") },
-                        singleLine = true
-                    )
                 }
             }
         }

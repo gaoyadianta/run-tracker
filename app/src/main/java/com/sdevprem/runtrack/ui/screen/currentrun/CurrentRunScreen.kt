@@ -45,6 +45,7 @@ import com.sdevprem.runtrack.data.tracking.location.LocationUtils
 import com.sdevprem.runtrack.ui.common.compose.BatteryOptimizationDialog
 import com.sdevprem.runtrack.ui.common.compose.animation.ComposeUtils
 import com.sdevprem.runtrack.ui.common.map.MapStyle
+import com.sdevprem.runtrack.ui.nav.Destination
 import com.sdevprem.runtrack.ui.screen.currentrun.component.AICompanionCard
 import com.sdevprem.runtrack.ui.screen.currentrun.component.CurrentRunStatsCard
 import com.sdevprem.runtrack.ui.screen.currentrun.component.Map
@@ -246,6 +247,7 @@ fun CurrentRunScreen(
                 NewsNowPlayingCard(
                         state = newsPlaybackState,
                         onPrimaryActionClick = { viewModel.toggleNewsPlayback() },
+                        onOpenSettingsClick = { Destination.navigateToSettingsScreen(navController) },
                         onSkipClick = { viewModel.skipNewsReadout() },
                         onStopClick = { viewModel.stopNewsReadout() }
                 )

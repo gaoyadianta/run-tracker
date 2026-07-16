@@ -10,6 +10,17 @@ plugins {
     alias(libs.plugins.jetbrains.kotlin.compose)
 }
 
+secrets {
+    // Maps plugin should expose only MAPS_API_KEY; all service credentials are variant-scoped below.
+    ignoreList.add("AMAP_API_KEY")
+    ignoreList.add("COZE_ACCESS_TOKEN")
+    ignoreList.add("AI_.*")
+    ignoreList.add("NEWS_.*")
+    ignoreList.add("API_Host")
+    ignoreList.add("OpenAI_compitiable_address")
+    ignoreList.add("DashScope")
+}
+
 val localProperties = Properties().apply {
     rootProject.file("local.properties")
         .takeIf { it.exists() }
@@ -42,18 +53,30 @@ android {
         val amapApiKey = secretValue("AMAP_API_KEY")
         manifestPlaceholders["AMAP_API_KEY"] = amapApiKey
 
-        // Secrets are injected from local.properties, -P properties, or CI environment variables.
-        resValue("string", "coze_access_token", secretValue("COZE_ACCESS_TOKEN"))
-        resValue("string", "ai_ws_volcano_token", secretValue("AI_WS_VOLCANO_TOKEN"))
-        resValue("string", "ai_ws_bailian_token", secretValue("AI_WS_BAILIAN_TOKEN"))
-        resValue("string", "ai_bailian_api_key", secretValue("AI_BAILIAN_API_KEY"))
-        resValue("string", "ai_volcano_access_key", secretValue("AI_VOLCANO_ACCESS_KEY"))
-        resValue("string", "ai_volcano_ark_api_key", secretValue("AI_VOLCANO_ARK_API_KEY"))
-        resValue("string", "news_program_api_key_value", secretValue("NEWS_PROGRAM_API_KEY"))
     }
 
     buildTypes {
+        debug {
+            // Direct vendor credentials are permitted only in local debug builds.
+            resValue("string", "coze_access_token", secretValue("COZE_ACCESS_TOKEN"))
+            resValue("string", "ai_ws_volcano_token", secretValue("AI_WS_VOLCANO_TOKEN"))
+            resValue("string", "ai_ws_bailian_token", secretValue("AI_WS_BAILIAN_TOKEN"))
+            resValue("string", "ai_bailian_api_key", secretValue("AI_BAILIAN_API_KEY"))
+            resValue("string", "ai_volcano_access_key", secretValue("AI_VOLCANO_ACCESS_KEY"))
+            resValue("string", "ai_volcano_ark_api_key", secretValue("AI_VOLCANO_ARK_API_KEY"))
+            resValue("string", "news_program_api_key_value", secretValue("NEWS_PROGRAM_API_KEY"))
+            resValue("string", "news_backend_base_url", secretValue("NEWS_BACKEND_BASE_URL"))
+        }
         release {
+            // News/LLM permanent keys are excluded; existing realtime companion services are unchanged.
+            resValue("string", "coze_access_token", secretValue("COZE_ACCESS_TOKEN"))
+            resValue("string", "ai_ws_volcano_token", secretValue("AI_WS_VOLCANO_TOKEN"))
+            resValue("string", "ai_ws_bailian_token", secretValue("AI_WS_BAILIAN_TOKEN"))
+            resValue("string", "ai_bailian_api_key", "")
+            resValue("string", "ai_volcano_access_key", secretValue("AI_VOLCANO_ACCESS_KEY"))
+            resValue("string", "ai_volcano_ark_api_key", secretValue("AI_VOLCANO_ARK_API_KEY"))
+            resValue("string", "news_program_api_key_value", "")
+            resValue("string", "news_backend_base_url", secretValue("NEWS_BACKEND_BASE_URL"))
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -75,6 +98,9 @@ android {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
 }
 
@@ -99,8 +125,12 @@ dependencies {
 
     //test
     testImplementation(libs.junit)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.11.0")
+    testImplementation("org.mockito:mockito-core:5.14.2")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation("androidx.room:room-testing:2.8.4")
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
